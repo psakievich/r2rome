@@ -1,0 +1,137 @@
+# Platform Rewrite v2 — project graph
+#
+# Schema:
+#   name:    unique identifier (no spaces)
+#   label:   display name (node)
+#   title:   display name (graph)
+#   status:  done | active | todo | blocked
+#   note:    freeform description (optional)
+#   graph:   nested subgraph (recursive)
+#   deps:    outgoing edges to other nodes
+#   blocks:  outgoing dashed edges (blocking relationship)
+
+name: root
+title: Platform Rewrite v2
+
+nodes:
+  - name: infra
+    label: Infrastructure
+    status: active
+    note: Cloud migration and IaC setup
+    deps: [backend, frontend]
+    graph:
+      name: infra
+      title: Infrastructure Epic
+      nodes:
+        - name: infra_tf
+          label: Terraform modules
+          status: done
+          note: All base modules written
+          deps: [infra_k8s, infra_ci]
+        - name: infra_ci
+          label: CI/CD pipelines
+          status: active
+          note: GitHub Actions in progress
+        - name: infra_k8s
+          label: K8s cluster setup
+          status: done
+          note: EKS prod + staging
+          deps: [infra_obs, infra_sec]
+        - name: infra_obs
+          label: Observability stack
+          status: todo
+          note: Prometheus + Grafana
+        - name: infra_sec
+          label: Secrets management
+          status: blocked
+          note: Waiting on security review
+
+  - name: backend
+    label: Backend Services
+    status: active
+    note: API layer and data services
+    deps: [frontend, m_alpha]
+    graph:
+      name: backend
+      title: Backend Services Epic
+      nodes:
+        - name: be_auth
+          label: Auth service
+          status: done
+          note: JWT + OAuth2 complete
+          deps: [be_api]
+        - name: be_api
+          label: REST API gateway
+          status: active
+          note: 50% endpoints done
+          deps: [be_grpc, be_data]
+        - name: be_grpc
+          label: gRPC internal bus
+          status: todo
+          note: Schema defined, impl pending
+        - name: be_data
+          label: Data layer
+          status: active
+          note: DB + cache + migrations
+          graph:
+            name: be_data
+            title: Data Layer
+            nodes:
+              - name: db_schema
+                label: Schema migrations
+                status: done
+                note: "Alembic, 12 migrations"
+                deps: [db_models]
+              - name: db_models
+                label: ORM models
+                status: done
+                note: SQLAlchemy models
+                deps: [db_cache, db_replica]
+              - name: db_cache
+                label: Redis caching layer
+                status: active
+                note: TTL strategy in review
+              - name: db_replica
+                label: Read replicas
+                status: blocked
+                note: DBA approval pending
+
+  - name: frontend
+    label: Frontend
+    status: todo
+    note: "Web UI — React SPA"
+    deps: [m_alpha]
+    graph:
+      name: frontend
+      title: Frontend Epic
+      nodes:
+        - name: fe_ds
+          label: Design system
+          status: active
+          note: Tokens & components
+          deps: [fe_auth, fe_dash]
+        - name: fe_auth
+          label: Auth UI flows
+          status: todo
+          note: Depends on BE auth
+          deps: [fe_dash]
+        - name: fe_dash
+          label: Dashboard
+          status: todo
+          note: Main product interface
+          deps: [fe_e2e]
+        - name: fe_e2e
+          label: E2E test suite
+          status: todo
+          note: Playwright
+
+  - name: m_alpha
+    label: Alpha Release
+    status: todo
+    note: Internal dogfood milestone
+    deps: [m_beta]
+
+  - name: m_beta
+    label: Public Beta
+    status: todo
+    note: External customer access

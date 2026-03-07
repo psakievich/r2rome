@@ -132,66 +132,73 @@
   const svg = container.querySelector('svg');
   if (!svg) return;
 
-  // Make SVG fill the container instead of using its fixed dimensions
   svg.removeAttribute('width');
   svg.removeAttribute('height');
 
-  // Wrap contents in a <g> for transform targeting if not already
-  let inner = svg.querySelector('g');
-  if (!inner) {
-    inner = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    while (svg.firstChild) inner.appendChild(svg.firstChild);
-    svg.appendChild(inner);
-  }
+  // Wrap ALL existing SVG children in a new <g> — preserves the Graphviz
+  // <g>'s own transform while giving D3 a clean target for pan/zoom.
+  const xformG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  while (svg.firstChild) xformG.appendChild(svg.firstChild);
+  svg.appendChild(xformG);
 
-  const d3svg  = d3.select(svg);
-  const d3inner = d3.select(inner);
+  const d3svg   = d3.select(svg);
+  const d3xform = d3.select(xformG);
 
   const zoom = d3.zoom()
     .scaleExtent([0.05, 8])
-    .on('zoom', e => d3inner.attr('transform', e.transform));
+    .on('zoom', e => d3xform.attr('transform', e.transform));
 
   d3svg.call(zoom);
 
-  // Fit graph to viewport on load
+  // Returns viewBox scale (xMidYMid meet) and margin offsets in screen px.
+  function vbInfo() {
+    const r  = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    const s  = Math.min(r.width / vb.width, r.height / vb.height);
+    return { s, dx: (r.width - vb.width * s) / 2, dy: (r.height - vb.height * s) / 2, vb };
+  }
+
+  // Fit content to viewBox — works in viewBox coordinate space so the
+  // viewBox-to-screen scaling does not cause double-zoom on sub-pages.
   function fitView() {
-    const svgRect   = svg.getBoundingClientRect();
-    const innerRect = inner.getBBox();
-    if (!innerRect.width || !innerRect.height) return;
-
-    const scaleX = svgRect.width  / innerRect.width;
-    const scaleY = svgRect.height / innerRect.height;
-    const scale  = Math.min(scaleX, scaleY) * 0.9;
-    const tx = (svgRect.width  - innerRect.width  * scale) / 2 - innerRect.x * scale;
-    const ty = (svgRect.height - innerRect.height * scale) / 2 - innerRect.y * scale;
-
+    const v    = vbInfo();
+    const bbox = xformG.getBBox();
+    if (!bbox.width || !bbox.height || !v.vb.width) return;
+    const scale = Math.min(v.vb.width / bbox.width, v.vb.height / bbox.height) * 0.9;
+    const tx = v.vb.width  / 2 - scale * (bbox.x + bbox.width  / 2);
+    const ty = v.vb.height / 2 - scale * (bbox.y + bbox.height / 2);
     d3svg.call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }
 
-  // Run after SVG is painted
   requestAnimationFrame(fitView);
 
-  // Zoom to fit a bbox (in graphviz/inner coordinates) with padding
-  function zoomToBBox(bbox, padding) {
-    padding = padding || 60;
-    const svgRect = svg.getBoundingClientRect();
-    const scale   = Math.min(
-      svgRect.width  / (bbox.width  + padding * 2),
-      svgRect.height / (bbox.height + padding * 2),
-      4
+  // Zoom to fit a bounding rect given in viewBox coordinate space.
+  function zoomToBBox(bvb, padding) {
+    padding = padding || 40;
+    const v     = vbInfo();
+    const scale = Math.min(
+      v.vb.width  / (bvb.width  + padding * 2),
+      v.vb.height / (bvb.height + padding * 2),
+      8
     );
-    const cx = bbox.x + bbox.width  / 2;
-    const cy = bbox.y + bbox.height / 2;
-    const tx = svgRect.width  / 2 - cx * scale;
-    const ty = svgRect.height / 2 - cy * scale;
+    const tx = v.vb.width  / 2 - scale * (bvb.x + bvb.width  / 2);
+    const ty = v.vb.height / 2 - scale * (bvb.y + bvb.height / 2);
     d3svg.transition().duration(400)
       .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }
 
-  // Click a node → zoom to fit it
+  // Click a node → zoom to fit it (convert screen rect → viewBox coords).
   d3svg.selectAll('g.node').on('click', function (event) {
     event.stopPropagation();
-    zoomToBBox(this.getBBox());
+    const v  = vbInfo();
+    const sr = svg.getBoundingClientRect();
+    const nr = this.getBoundingClientRect();
+    zoomToBBox({
+      x:      (nr.left - sr.left - v.dx) / v.s,
+      y:      (nr.top  - sr.top  - v.dy) / v.s,
+      width:  nr.width  / v.s,
+      height: nr.height / v.s,
+    });
   });
 
   // Control buttons

@@ -12,19 +12,24 @@ Key differences from the original:
   - 'blocks' edges are supported alongside 'deps', rendered with a distinct
     dashed red style
   - ci_coloring works on both deps and blocks for full propagation
+  - Nodes with a 'graph:' key render as inline DOT cluster subgraphs,
+    with compound=true so edges to/from clusters connect at the boundary
   - assemble() accepts an optional max_depth to collapse subgraphs into
     hyperlinked nodes rather than recursing indefinitely
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import Dict, List, Optional, Set
 
 from graphviz import Digraph
 
 from r2rome.model import (
     BLOCKS_EDGE_STYLE,
+    DEFAULT_GRAPH_ATTR,
     DEFAULT_NODE_ATTR,
+    STATUS_STYLE,
     Graph,
     GraphNode,
 )
@@ -103,33 +108,53 @@ def _add_node(node: GraphNode, graph: Digraph) -> None:
     graph.node(node.name, label=node.label or node.name, **attrs)
 
 
-def _add_edges(node: GraphNode, graph: Digraph, known_names: Set[str]) -> None:
+def _add_edges(
+    node: GraphNode,
+    graph: Digraph,
+    known_names: Set[str],
+    cluster_names: Optional[Set[str]] = None,
+) -> None:
     """Add deps and blocks edges from a node into the graph.
 
     Edges referencing names not in known_names are skipped with a warning
     rather than hard-failing, so partial graphs render gracefully.
+
+    When cluster_names is provided, edges to/from cluster nodes use
+    lhead/ltail so graphviz draws arrows to the cluster boundary rather
+    than to the invisible anchor node inside it (requires compound=true
+    on the parent graph).
     """
+    cluster_names = cluster_names or set()
+
     for dep in node.deps:
         if dep not in known_names:
-            import warnings
             warnings.warn(
                 f"Node '{node.name}' has dep '{dep}' which is not defined "
                 "in this graph level — edge skipped.",
                 stacklevel=3,
             )
             continue
-        graph.edge(node.name, dep)
+        edge_attrs: Dict[str, str] = {}
+        if node.name in cluster_names:
+            edge_attrs["ltail"] = f"cluster_{node.name}"
+        if dep in cluster_names:
+            edge_attrs["lhead"] = f"cluster_{dep}"
+        graph.edge(node.name, dep, **edge_attrs)
 
     for blocked in node.blocks:
         if blocked not in known_names:
-            import warnings
             warnings.warn(
                 f"Node '{node.name}' blocks '{blocked}' which is not defined "
                 "in this graph level — edge skipped.",
                 stacklevel=3,
             )
             continue
-        graph.edge(node.name, blocked, **BLOCKS_EDGE_STYLE)
+        edge_attrs = dict(BLOCKS_EDGE_STYLE)
+        if node.name in cluster_names:
+            edge_attrs["ltail"] = f"cluster_{node.name}"
+        if blocked in cluster_names:
+            edge_attrs["lhead"] = f"cluster_{blocked}"
+        graph.edge(node.name, blocked, **edge_attrs)
 
 
 def assemble(nodes: List[GraphNode], graph: Digraph) -> None:
@@ -146,6 +171,94 @@ def assemble(nodes: List[GraphNode], graph: Digraph) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cluster builder for nodes with inline child graphs
+# ---------------------------------------------------------------------------
+
+def _build_node_cluster(
+    node: GraphNode,
+    current_depth: int,
+    max_depth: Optional[int],
+    output_dir: Optional[str],
+) -> Digraph:
+    """Build a DOT cluster subgraph from a node's child graph.
+
+    The node itself becomes an invisible anchor inside the cluster so that
+    edges declared with deps/blocks using this node's name still resolve.
+    With compound=true on the parent graph, graphviz routes those edges to
+    the cluster boundary rather than to the invisible anchor.
+    """
+    child_graph = node.children  # type: ignore[union-attr]
+
+    # Cluster border color follows the node's status
+    border_color = "#1e2330"
+    if node.status and node.status in STATUS_STYLE:
+        border_color = STATUS_STYLE[node.status].get("color", border_color)
+
+    cluster_attr: Dict[str, str] = {
+        "label":     node.label or node.name,
+        "style":     "filled",
+        "fillcolor": "#13161e",
+        "color":     border_color,
+        "fontcolor": DEFAULT_GRAPH_ATTR["fontcolor"],
+        "fontname":  DEFAULT_GRAPH_ATTR["fontname"],
+    }
+    if output_dir is not None:
+        cluster_attr["href"]   = f"{node.name}.html"
+        cluster_attr["target"] = "_self"
+
+    cluster = Digraph(
+        name=f"cluster_{node.name}",
+        graph_attr=cluster_attr,
+    )
+
+    # Invisible anchor so edges targeting this node's name still work
+    cluster.node(
+        node.name,
+        label="",
+        style="invis",
+        width="0.01",
+        height="0.01",
+    )
+
+    child_known: Set[str] = {n.name for n in child_graph.nodes}
+    child_clusters: Set[str] = set()
+
+    for child_node in child_graph.nodes:
+        at_limit = max_depth is not None and current_depth >= max_depth
+        has_children = child_node.children is not None
+
+        if at_limit and has_children:
+            href_attrs: Dict[str, str] = {}
+            if output_dir is not None:
+                href_attrs["href"]      = f"{child_node.name}.html"
+                href_attrs["fontcolor"] = "blue"
+                href_attrs["tooltip"]   = f"Click to expand {child_node.label or child_node.name}"
+            collapsed_attrs = {
+                **DEFAULT_NODE_ATTR,
+                **child_node.effective_dot_attrs(),
+                **href_attrs,
+                "peripheries": "2",
+            }
+            cluster.node(child_node.name, label=child_node.label or child_node.name, **collapsed_attrs)
+        elif has_children:
+            child_clusters.add(child_node.name)
+            sub_cluster = _build_node_cluster(
+                child_node,
+                current_depth=current_depth + 1,
+                max_depth=max_depth,
+                output_dir=output_dir,
+            )
+            cluster.subgraph(sub_cluster)
+        else:
+            _add_node(child_node, cluster)
+
+    for child_node in child_graph.nodes:
+        _add_edges(child_node, cluster, child_known, cluster_names=child_clusters)
+
+    return cluster
+
+
+# ---------------------------------------------------------------------------
 # Recursive graph assembly with depth limiting
 # ---------------------------------------------------------------------------
 
@@ -157,6 +270,10 @@ def build_digraph(
     output_dir: Optional[str] = None,
 ) -> Digraph:
     """Recursively assemble a Graph into a graphviz.Digraph.
+
+    Nodes with a child graph (from the 'graph:' YAML key) are rendered as
+    inline DOT cluster subgraphs.  compound=true is set on the root digraph
+    so that edges targeting clusters connect at the cluster boundary.
 
     Args:
         graph:         The Graph to assemble.
@@ -171,12 +288,21 @@ def build_digraph(
         The assembled Digraph (same object as parent if parent was provided).
     """
     is_root = parent is None
-    dot = Digraph(name=graph.dot_name, graph_attr=graph.graph_attr) if not is_root \
-        else Digraph(name=graph.name, graph_attr=graph.graph_attr)
 
+    g_attr = dict(graph.graph_attr)
+    if is_root:
+        g_attr["compound"] = "true"
+
+    dot = Digraph(
+        name=graph.name if is_root else graph.dot_name,
+        graph_attr=g_attr,
+    )
     target = dot
 
     known_names: Set[str] = {n.name for n in graph.nodes}
+
+    # Nodes that will be rendered as inline clusters at this level
+    inline_clusters: Set[str] = set()
 
     for node in graph.nodes:
         at_depth_limit = (max_depth is not None and current_depth >= max_depth)
@@ -198,15 +324,26 @@ def build_digraph(
                 "peripheries": "2",   # double border signals expandability
             }
             target.node(node.name, label=node.label or node.name, **collapsed_attrs)
+        elif node.children is not None:
+            # Render child graph as an inline cluster
+            inline_clusters.add(node.name)
+            cluster = _build_node_cluster(
+                node,
+                current_depth=current_depth + 1,
+                max_depth=max_depth,
+                output_dir=output_dir,
+            )
+            target.subgraph(cluster)
         else:
             _add_node(node, target)
 
-        _add_edges(node, target, known_names)
+    # Add edges after all nodes/clusters are placed
+    for node in graph.nodes:
+        _add_edges(node, target, known_names, cluster_names=inline_clusters)
 
-    # Recurse into subgraphs unless at depth limit
+    # Recurse into top-level subgraphs (graph.graphs in YAML) unless at depth limit
     for subgraph in graph.subgraphs:
         if max_depth is not None and current_depth >= max_depth:
-            # Already handled above as collapsed nodes; skip recursion
             continue
         sub_dot = build_digraph(
             subgraph,

@@ -105,11 +105,7 @@ def write_page(
         "cdn":         cdn,
     }
 
-    if cdn and graph_data is not None:
-        import json
-        ctx["graph_json"] = json.dumps(graph_data)
-    else:
-        ctx["svg_content"] = _embed_svg(svg_path)
+    ctx["svg_content"] = _embed_svg(svg_path)
 
     output_html.write_text(tmpl.render(**ctx), encoding="utf-8")
 

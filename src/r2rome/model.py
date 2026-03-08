@@ -32,6 +32,7 @@ YAML schema
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -239,10 +240,10 @@ class Graph:
 # ---------------------------------------------------------------------------
 
 def load(path: os.PathLike) -> Graph:
-    """Load and parse a YAML project file into a Graph.
+    """Load and parse a YAML or JSON project file into a Graph.
 
     Args:
-        path: Path to a .yaml or .yml file.
+        path: Path to a .yaml, .yml, or .json file.
 
     Returns:
         A fully parsed Graph.
@@ -250,6 +251,7 @@ def load(path: os.PathLike) -> Graph:
     Raises:
         FileNotFoundError: If the path does not exist.
         yaml.YAMLError:    If the file is not valid YAML.
+        json.JSONDecodeError: If the file is not valid JSON.
         ValueError:        If the graph schema is invalid.
     """
     path = Path(path)
@@ -257,10 +259,13 @@ def load(path: os.PathLike) -> Graph:
         raise FileNotFoundError(f"Project file not found: {path}")
 
     with path.open("r") as fh:
-        data = yaml.safe_load(fh)
+        if path.suffix.lower() == ".json":
+            data = json.load(fh)
+        else:
+            data = yaml.safe_load(fh)
 
     if not isinstance(data, dict):
-        raise ValueError(f"Expected a YAML mapping at the top level, got: {type(data)}")
+        raise ValueError(f"Expected a mapping at the top level, got: {type(data)}")
 
     return Graph.from_dict(data)
 

@@ -2,6 +2,7 @@
 Tests for r2rome.model — YAML parsing, GraphNode, Graph, validation.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -170,8 +171,69 @@ class TestLoad:
     def test_load_non_mapping_raises(self, tmp_path):
         f = tmp_path / "bad.yaml"
         f.write_text("- just a list\n- not a mapping\n")
-        with pytest.raises(ValueError, match="Expected a YAML mapping"):
+        with pytest.raises(ValueError, match="Expected a mapping"):
             load(f)
+
+    def test_load_json_simple(self, tmp_path):
+        data = {
+            "name": "root",
+            "title": "Simple Test Project",
+            "nodes": [
+                {"name": "a", "label": "Node A", "status": "active", "deps": ["b", "c"]},
+                {"name": "b", "label": "Node B", "status": "done"},
+                {"name": "c", "label": "Node C", "status": "todo", "blocks": ["a"]},
+            ],
+        }
+        f = tmp_path / "simple.json"
+        f.write_text(json.dumps(data))
+        g = load(f)
+        assert g.name == "root"
+        assert g.title == "Simple Test Project"
+        assert len(g.nodes) == 3
+
+    def test_load_json_nested(self, tmp_path):
+        data = {
+            "name": "root",
+            "graphs": [
+                {"name": "sub", "nodes": [{"name": "x", "status": "done"}]},
+            ],
+        }
+        f = tmp_path / "nested.json"
+        f.write_text(json.dumps(data))
+        g = load(f)
+        assert len(g.subgraphs) == 1
+        assert g.subgraphs[0].name == "sub"
+
+    def test_load_json_invalid_raises(self, tmp_path):
+        f = tmp_path / "bad.json"
+        f.write_text("{not valid json")
+        with pytest.raises(json.JSONDecodeError):
+            load(f)
+
+    def test_load_json_produces_same_graph_as_yaml(self, simple_yaml_file, tmp_path):
+        """JSON and YAML inputs with identical content produce equal Graph objects."""
+        data = {
+            "name": "root",
+            "title": "Simple Test Project",
+            "nodes": [
+                {"name": "a", "label": "Node A", "status": "active", "deps": ["b", "c"]},
+                {"name": "b", "label": "Node B", "status": "done"},
+                {"name": "c", "label": "Node C", "status": "todo", "blocks": ["a"]},
+            ],
+        }
+        f = tmp_path / "simple.json"
+        f.write_text(json.dumps(data))
+        g_json = load(f)
+        g_yaml = load(simple_yaml_file)
+        assert g_json.name == g_yaml.name
+        assert g_json.title == g_yaml.title
+        assert len(g_json.nodes) == len(g_yaml.nodes)
+        for jn, yn in zip(g_json.nodes, g_yaml.nodes):
+            assert jn.name == yn.name
+            assert jn.label == yn.label
+            assert jn.status == yn.status
+            assert jn.deps == yn.deps
+            assert jn.blocks == yn.blocks
 
 
 class TestCoerceList:

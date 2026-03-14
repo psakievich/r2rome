@@ -17,6 +17,7 @@ CDN mode (--cdn flag):
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -62,6 +63,7 @@ def graph_to_json_data(graph: "Graph") -> dict:
                 "label":  node.label or node.name,
                 "status": node.status or "todo",
                 "href":   href,
+                "note":   node.note or "",
             })
             for dep in node.deps:
                 edges.append({"from": node.name, "to": dep, "blocks": False})
@@ -99,10 +101,11 @@ def write_page(
     tmpl = env.get_template("cdn_page.html" if cdn else "offline_page.html")
 
     ctx: dict = {
-        "title":       title,
-        "breadcrumb":  breadcrumb,
-        "parent_href": parent_href,
-        "cdn":         cdn,
+        "title":           title,
+        "breadcrumb":      breadcrumb,
+        "parent_href":     parent_href,
+        "cdn":             cdn,
+        "graph_data_json": json.dumps(graph_data) if graph_data is not None else "null",
     }
 
     ctx["svg_content"] = _embed_svg(svg_path)

@@ -79,6 +79,76 @@ DEFAULT_NODE_ATTR: Dict[str, str] = {
     "shape": "box",
 }
 
+# Default edge (dep arrow) styling — explicit color so arrows are visible on dark bg
+DEFAULT_EDGE_ATTR: Dict[str, str] = {
+    "color": "#c8d0e0",
+    "fontcolor": "#c8d0e0",
+}
+
+# ---------------------------------------------------------------------------
+# Light theme
+# ---------------------------------------------------------------------------
+
+LIGHT_STATUS_STYLE: Dict[str, Dict[str, str]] = {
+    "done":    {"fillcolor": "#d4f5e4", "fontcolor": "#1a7a4a", "color": "#2d9b63"},
+    "active":  {"fillcolor": "#d4f0f0", "fontcolor": "#0a7a6a", "color": "#0a9b85"},
+    "todo":    {"fillcolor": "#f8f9fa", "fontcolor": "#4a5568", "color": "#b0bac8"},
+    "blocked": {"fillcolor": "#fde8e8", "fontcolor": "#c53030", "color": "#e05252"},
+}
+
+LIGHT_BLOCKS_EDGE_STYLE: Dict[str, str] = {
+    "style": "dashed",
+    "color": "#c53030",
+    "fontcolor": "#c53030",
+}
+
+LIGHT_GRAPH_ATTR: Dict[str, str] = {
+    "rankdir": "LR",
+    "labelloc": "t",
+    "bgcolor": "#f8f9fa",
+    "fontcolor": "#1a1a2e",
+    "fontname": "JetBrains Mono, monospace",
+}
+
+LIGHT_NODE_ATTR: Dict[str, str] = {
+    "style": "filled",
+    "fillcolor": "#ffffff",
+    "color": "#b0bac8",
+    "fontcolor": "#2d3748",
+    "fontname": "JetBrains Mono, monospace",
+    "shape": "box",
+}
+
+LIGHT_EDGE_ATTR: Dict[str, str] = {
+    "color": "#4a5568",
+    "fontcolor": "#4a5568",
+}
+
+# ---------------------------------------------------------------------------
+# Theme registry
+# ---------------------------------------------------------------------------
+
+THEMES: Dict[str, Dict[str, Any]] = {
+    "dark": {
+        "graph_attr":             DEFAULT_GRAPH_ATTR,
+        "node_attr":              DEFAULT_NODE_ATTR,
+        "edge_attr":              DEFAULT_EDGE_ATTR,
+        "status_style":           STATUS_STYLE,
+        "blocks_edge":            BLOCKS_EDGE_STYLE,
+        "cluster_fill":           "#13161e",
+        "cluster_border_fallback": "#1e2330",
+    },
+    "light": {
+        "graph_attr":             LIGHT_GRAPH_ATTR,
+        "node_attr":              LIGHT_NODE_ATTR,
+        "edge_attr":              LIGHT_EDGE_ATTR,
+        "status_style":           LIGHT_STATUS_STYLE,
+        "blocks_edge":            LIGHT_BLOCKS_EDGE_STYLE,
+        "cluster_fill":           "#f0f2f5",
+        "cluster_border_fallback": "#c0cad8",
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # GraphNode
@@ -121,11 +191,20 @@ class GraphNode:
                 f"Must be one of: {sorted(VALID_STATUSES)}"
             )
 
-    def effective_dot_attrs(self) -> Dict[str, str]:
-        """Return merged DOT node attributes including status styling."""
+    def effective_dot_attrs(
+        self, status_style: Optional[Dict[str, Dict[str, str]]] = None
+    ) -> Dict[str, str]:
+        """Return merged DOT node attributes including status styling.
+
+        Args:
+            status_style: Theme-specific status colour map.  Defaults to the
+                          dark-theme STATUS_STYLE for backward compatibility.
+        """
+        if status_style is None:
+            status_style = STATUS_STYLE
         attrs: Dict[str, str] = {}
-        if self.status and self.status in STATUS_STYLE:
-            attrs.update(STATUS_STYLE[self.status])
+        if self.status and self.status in status_style:
+            attrs.update(status_style[self.status])
         # href triggers blue font in original code — preserve that
         if "href" in self.dot_attrs:
             attrs["fontcolor"] = "blue"
@@ -187,6 +266,7 @@ class Graph:
     name: str
     title: Optional[str] = None
     cluster: bool = True
+    color_scheme: str = "dark"
     graph_attr: Dict[str, str] = field(default_factory=dict)
     nodes: List[GraphNode] = field(default_factory=list)
     subgraphs: List["Graph"] = field(default_factory=list)
@@ -194,8 +274,9 @@ class Graph:
     def __post_init__(self) -> None:
         if self.title is None:
             self.title = self.name
-        # Merge with defaults — caller overrides take precedence
-        merged = dict(DEFAULT_GRAPH_ATTR)
+        # Select the theme-appropriate graph defaults; caller overrides take precedence
+        theme_graph_attr = THEMES.get(self.color_scheme, THEMES["dark"])["graph_attr"]
+        merged = dict(theme_graph_attr)
         merged.update(self.graph_attr)
         merged["label"] = self.title
         self.graph_attr = merged
@@ -212,10 +293,11 @@ class Graph:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Graph":
         """Parse a Graph from a YAML dict (top-level or nested)."""
-        name       = data.get("name", "root")
-        title      = data.get("title", name)
-        cluster    = data.get("cluster", True)
-        graph_attr = data.get("graph_attr", {})
+        name         = data.get("name", "root")
+        title        = data.get("title", name)
+        cluster      = data.get("cluster", True)
+        color_scheme = data.get("color_scheme", "dark")
+        graph_attr   = data.get("graph_attr", {})
 
         nodes: List[GraphNode] = [
             GraphNode.from_dict(n) for n in data.get("nodes", [])
@@ -229,6 +311,7 @@ class Graph:
             name=name,
             title=title,
             cluster=cluster,
+            color_scheme=color_scheme,
             graph_attr=graph_attr,
             nodes=nodes,
             subgraphs=subgraphs,

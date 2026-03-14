@@ -233,7 +233,7 @@
   svg.querySelectorAll('g.node text').forEach(function (el) {
     nodeTexts.push({ el: el, base: parseFloat(el.getAttribute('font-size')) || 14 });
   });
-  let nodeFontDelta = 0;
+  let nodeFontDelta = -4;  // default: 2 clicks smaller than Graphviz baseline
   const NODE_SIZE_MIN = -8;
   const NODE_SIZE_MAX = 20;
   function applyNodeSize() {
@@ -241,6 +241,7 @@
       t.el.setAttribute('font-size', t.base + nodeFontDelta);
     });
   }
+  applyNodeSize();
   document.getElementById('btn-node-size-up').addEventListener('click', function () {
     if (nodeFontDelta < NODE_SIZE_MAX) { nodeFontDelta += 2; applyNodeSize(); }
   });

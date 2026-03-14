@@ -24,11 +24,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import warnings
 from pathlib import Path
 from typing import List, Optional
 
-from graphviz import Digraph
 
 from r2rome.model import Graph
 from r2rome.assemble import build_digraph

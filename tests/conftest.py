@@ -6,7 +6,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-import yaml
 
 from r2rome.model import Graph, GraphNode, load
 

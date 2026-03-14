@@ -4,12 +4,11 @@ DOT source generation.  Actual graphviz rendering calls are mocked so
 these tests run without the dot binary installed.
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from r2rome.model import Graph, GraphNode
+from r2rome.model import Graph
 from r2rome.render import (
     dot_version,
     find_dot_binary,

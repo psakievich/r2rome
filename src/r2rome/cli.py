@@ -34,6 +34,14 @@ from r2rome.render import (
 )
 from r2rome.html_writer import write_all_pages, graph_to_json_data
 
+# argcomplete is an optional dependency — graceful degradation when absent
+try:
+    import argcomplete
+    from argcomplete.completers import FilesCompleter
+    _HAS_ARGCOMPLETE = True
+except ImportError:
+    _HAS_ARGCOMPLETE = False
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -86,6 +94,54 @@ def _check_dot(warn_only: bool = False) -> None:
         else:
             print(msg, file=sys.stderr)
             sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Tab-completion helpers (used only when argcomplete is installed)
+# ---------------------------------------------------------------------------
+
+def _all_graph_names(graph: Graph) -> List[str]:
+    """Collect names of all graphs/subgraphs in the hierarchy."""
+    names: List[str] = [graph.name]
+    for sg in graph.subgraphs:
+        names.extend(_all_graph_names(sg))
+    for node in graph.nodes:
+        if node.children:
+            names.extend(_all_graph_names(node.children))
+    return names
+
+
+def _all_node_names(graph: Graph) -> List[str]:
+    """Collect names of every node in the hierarchy."""
+    names: List[str] = [n.name for n in graph.nodes]
+    for sg in graph.subgraphs:
+        names.extend(_all_node_names(sg))
+    for node in graph.nodes:
+        if node.children:
+            names.extend(_all_node_names(node.children))
+    return names
+
+
+def _graph_name_completer(prefix: str, parsed_args: argparse.Namespace, **kwargs):
+    """Complete with subgraph names read from the already-typed input file."""
+    input_file = getattr(parsed_args, "input_file", None)
+    if not input_file:
+        return []
+    try:
+        return _all_graph_names(load(input_file))
+    except Exception:
+        return []
+
+
+def _node_name_completer(prefix: str, parsed_args: argparse.Namespace, **kwargs):
+    """Complete with node names read from the already-typed input file."""
+    input_file = getattr(parsed_args, "input_file", None)
+    if not input_file:
+        return []
+    try:
+        return _all_node_names(load(input_file))
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +322,9 @@ def build_parser() -> argparse.ArgumentParser:
                     "Requires the 'dot' binary (Graphviz) to be on PATH.\n"
                     "Install via: spack install graphviz && spack load graphviz",
     )
-    p_render.add_argument("input_file", help="Path to project .yaml file")
+    _act = p_render.add_argument("input_file", help="Path to project .yaml/.json file")
+    if _HAS_ARGCOMPLETE:
+        _act.completer = FilesCompleter(["yaml", "yml", "json"])
     p_render.add_argument(
         "-o", "--output", default="out",
         help="Output directory (default: ./out)",
@@ -300,11 +358,15 @@ def build_parser() -> argparse.ArgumentParser:
                     "graph structure or piping to graphviz manually:\n\n"
                     "  r2rome dot project.yaml | dot -Tsvg -o out.svg",
     )
-    p_dot.add_argument("input_file", help="Path to project .yaml file")
-    p_dot.add_argument(
+    _act = p_dot.add_argument("input_file", help="Path to project .yaml/.json file")
+    if _HAS_ARGCOMPLETE:
+        _act.completer = FilesCompleter(["yaml", "yml", "json"])
+    _act = p_dot.add_argument(
         "--level", default=None, metavar="NAME",
         help="Emit only the named subgraph (default: entire graph)",
     )
+    if _HAS_ARGCOMPLETE:
+        _act.completer = _graph_name_completer
     p_dot.add_argument(
         "-o", "--output", default=None, metavar="FILE",
         help="Write DOT source to FILE instead of stdout",
@@ -320,7 +382,9 @@ def build_parser() -> argparse.ArgumentParser:
         "info",
         help="Print a summary of the graph structure",
     )
-    p_info.add_argument("input_file", help="Path to project .yaml file")
+    _act = p_info.add_argument("input_file", help="Path to project .yaml/.json file")
+    if _HAS_ARGCOMPLETE:
+        _act.completer = FilesCompleter(["yaml", "yml", "json"])
     p_info.set_defaults(func=cmd_info)
 
     return parser
@@ -332,6 +396,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     parser = build_parser()
+    if _HAS_ARGCOMPLETE:
+        argcomplete.autocomplete(parser)
     args   = parser.parse_args()
     sys.exit(args.func(args))
 

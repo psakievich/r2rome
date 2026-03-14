@@ -76,6 +76,7 @@ DEFAULT_NODE_ATTR: Dict[str, str] = {
     "color": "#3a4460",
     "fontcolor": "#7b8baa",
     "fontname": "JetBrains Mono, monospace",
+    "fontsize": "10",
     "shape": "box",
 }
 
@@ -116,6 +117,7 @@ LIGHT_NODE_ATTR: Dict[str, str] = {
     "color": "#b0bac8",
     "fontcolor": "#2d3748",
     "fontname": "JetBrains Mono, monospace",
+    "fontsize": "10",
     "shape": "box",
 }
 

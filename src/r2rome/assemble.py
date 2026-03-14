@@ -26,10 +26,7 @@ from typing import Dict, List, Optional, Set
 from graphviz import Digraph
 
 from r2rome.model import (
-    BLOCKS_EDGE_STYLE,
-    DEFAULT_GRAPH_ATTR,
-    DEFAULT_NODE_ATTR,
-    STATUS_STYLE,
+    THEMES,
     Graph,
     GraphNode,
 )
@@ -102,9 +99,16 @@ def clear_attrs(nodes: List[GraphNode]) -> None:
 # Core assembly
 # ---------------------------------------------------------------------------
 
-def _add_node(node: GraphNode, graph: Digraph) -> None:
+def _add_node(node: GraphNode, graph: Digraph, theme: Optional[Dict] = None) -> None:
     """Add a single GraphNode to a graphviz.Digraph."""
-    attrs = {**DEFAULT_NODE_ATTR, **node.effective_dot_attrs()}
+    if theme is None:
+        theme = THEMES["dark"]
+    attrs = {**theme["node_attr"], **node.effective_dot_attrs(theme["status_style"])}
+    # Set SVG id to node name so CDN tooltip JS can look up notes by id
+    attrs.setdefault("id", node.name)
+    # Set native SVG tooltip when a note is present
+    if node.note:
+        attrs.setdefault("tooltip", node.note)
     graph.node(node.name, label=node.label or node.name, **attrs)
 
 
@@ -113,6 +117,7 @@ def _add_edges(
     graph: Digraph,
     known_names: Set[str],
     cluster_names: Optional[Set[str]] = None,
+    theme: Optional[Dict] = None,
 ) -> None:
     """Add deps and blocks edges from a node into the graph.
 
@@ -124,6 +129,8 @@ def _add_edges(
     than to the invisible anchor node inside it (requires compound=true
     on the parent graph).
     """
+    if theme is None:
+        theme = THEMES["dark"]
     cluster_names = cluster_names or set()
 
     for dep in node.deps:
@@ -149,7 +156,7 @@ def _add_edges(
                 stacklevel=3,
             )
             continue
-        edge_attrs = dict(BLOCKS_EDGE_STYLE)
+        edge_attrs = dict(theme["blocks_edge"])
         if node.name in cluster_names:
             edge_attrs["ltail"] = f"cluster_{node.name}"
         if blocked in cluster_names:
@@ -179,6 +186,7 @@ def _build_node_cluster(
     current_depth: int,
     max_depth: Optional[int],
     output_dir: Optional[str],
+    theme: Optional[Dict] = None,
 ) -> Digraph:
     """Build a DOT cluster subgraph from a node's child graph.
 
@@ -187,20 +195,22 @@ def _build_node_cluster(
     With compound=true on the parent graph, graphviz routes those edges to
     the cluster boundary rather than to the invisible anchor.
     """
+    if theme is None:
+        theme = THEMES["dark"]
     child_graph = node.children  # type: ignore[union-attr]
 
     # Cluster border color follows the node's status
-    border_color = "#1e2330"
-    if node.status and node.status in STATUS_STYLE:
-        border_color = STATUS_STYLE[node.status].get("color", border_color)
+    border_color = theme["cluster_border_fallback"]
+    if node.status and node.status in theme["status_style"]:
+        border_color = theme["status_style"][node.status].get("color", border_color)
 
     cluster_attr: Dict[str, str] = {
         "label":     node.label or node.name,
         "style":     "filled",
-        "fillcolor": "#13161e",
+        "fillcolor": theme["cluster_fill"],
         "color":     border_color,
-        "fontcolor": DEFAULT_GRAPH_ATTR["fontcolor"],
-        "fontname":  DEFAULT_GRAPH_ATTR["fontname"],
+        "fontcolor": theme["graph_attr"]["fontcolor"],
+        "fontname":  theme["graph_attr"]["fontname"],
     }
     if output_dir is not None:
         cluster_attr["href"]   = f"{node.name}.html"
@@ -234,8 +244,8 @@ def _build_node_cluster(
                 href_attrs["fontcolor"] = "blue"
                 href_attrs["tooltip"]   = f"Click to expand {child_node.label or child_node.name}"
             collapsed_attrs = {
-                **DEFAULT_NODE_ATTR,
-                **child_node.effective_dot_attrs(),
+                **theme["node_attr"],
+                **child_node.effective_dot_attrs(theme["status_style"]),
                 **href_attrs,
                 "peripheries": "2",
             }
@@ -247,13 +257,14 @@ def _build_node_cluster(
                 current_depth=current_depth + 1,
                 max_depth=max_depth,
                 output_dir=output_dir,
+                theme=theme,
             )
             cluster.subgraph(sub_cluster)
         else:
-            _add_node(child_node, cluster)
+            _add_node(child_node, cluster, theme=theme)
 
     for child_node in child_graph.nodes:
-        _add_edges(child_node, cluster, child_known, cluster_names=child_clusters)
+        _add_edges(child_node, cluster, child_known, cluster_names=child_clusters, theme=theme)
 
     return cluster
 
@@ -268,6 +279,7 @@ def build_digraph(
     current_depth: int = 0,
     max_depth: Optional[int] = None,
     output_dir: Optional[str] = None,
+    theme: Optional[Dict] = None,
 ) -> Digraph:
     """Recursively assemble a Graph into a graphviz.Digraph.
 
@@ -289,6 +301,11 @@ def build_digraph(
     """
     is_root = parent is None
 
+    # Select theme once at the root; propagate it through all recursive calls
+    if theme is None:
+        scheme = getattr(graph, "color_scheme", "dark")
+        theme = THEMES.get(scheme, THEMES["dark"])
+
     g_attr = dict(graph.graph_attr)
     if is_root:
         g_attr["compound"] = "true"
@@ -296,6 +313,7 @@ def build_digraph(
     dot = Digraph(
         name=graph.name if is_root else graph.dot_name,
         graph_attr=g_attr,
+        edge_attr=theme["edge_attr"],
     )
     target = dot
 
@@ -318,8 +336,8 @@ def build_digraph(
                 href_attrs["fontcolor"] = "blue"
                 href_attrs["tooltip"]   = f"Click to expand {node.label or node.name}"
             collapsed_attrs = {
-                **DEFAULT_NODE_ATTR,
-                **node.effective_dot_attrs(),
+                **theme["node_attr"],
+                **node.effective_dot_attrs(theme["status_style"]),
                 **href_attrs,
                 "peripheries": "2",   # double border signals expandability
             }
@@ -332,14 +350,15 @@ def build_digraph(
                 current_depth=current_depth + 1,
                 max_depth=max_depth,
                 output_dir=output_dir,
+                theme=theme,
             )
             target.subgraph(cluster)
         else:
-            _add_node(node, target)
+            _add_node(node, target, theme=theme)
 
     # Add edges after all nodes/clusters are placed
     for node in graph.nodes:
-        _add_edges(node, target, known_names, cluster_names=inline_clusters)
+        _add_edges(node, target, known_names, cluster_names=inline_clusters, theme=theme)
 
     # Recurse into top-level subgraphs (graph.graphs in YAML) unless at depth limit
     for subgraph in graph.subgraphs:
@@ -351,6 +370,7 @@ def build_digraph(
             current_depth=current_depth + 1,
             max_depth=max_depth,
             output_dir=output_dir,
+            theme=theme,
         )
         target.subgraph(sub_dot)
 

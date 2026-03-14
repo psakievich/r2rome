@@ -136,8 +136,10 @@
     <button id="btn-zoom-in"       title="Zoom in">+</button>
     <button id="btn-zoom-out"      title="Zoom out">−</button>
     <button id="btn-reset"         title="Reset view">⊙</button>
-    <button id="btn-note-size-up"  title="Increase note size">A+</button>
+    <button id="btn-note-size-up"   title="Increase note size">A+</button>
     <button id="btn-note-size-down" title="Decrease note size">A−</button>
+    <button id="btn-node-size-up"   title="Increase node font size">N+</button>
+    <button id="btn-node-size-down" title="Decrease node font size">N−</button>
   </div>
   <div id="hint">Scroll to zoom · Drag to pan</div>
 </main>
@@ -224,6 +226,27 @@
   document.getElementById('btn-zoom-in') .addEventListener('click', () => d3svg.transition().duration(250).call(zoom.scaleBy, 1.4));
   document.getElementById('btn-zoom-out').addEventListener('click', () => d3svg.transition().duration(250).call(zoom.scaleBy, 1 / 1.4));
   document.getElementById('btn-reset')   .addEventListener('click', () => requestAnimationFrame(fitView));
+
+  // Control buttons — node label font size (adjusts Graphviz SVG text elements)
+  // Capture original sizes once so steps are always relative to the rendered baseline.
+  const nodeTexts = [];
+  svg.querySelectorAll('g.node text').forEach(function (el) {
+    nodeTexts.push({ el: el, base: parseFloat(el.getAttribute('font-size')) || 14 });
+  });
+  let nodeFontDelta = 0;
+  const NODE_SIZE_MIN = -8;
+  const NODE_SIZE_MAX = 20;
+  function applyNodeSize() {
+    nodeTexts.forEach(function (t) {
+      t.el.setAttribute('font-size', t.base + nodeFontDelta);
+    });
+  }
+  document.getElementById('btn-node-size-up').addEventListener('click', function () {
+    if (nodeFontDelta < NODE_SIZE_MAX) { nodeFontDelta += 2; applyNodeSize(); }
+  });
+  document.getElementById('btn-node-size-down').addEventListener('click', function () {
+    if (nodeFontDelta > NODE_SIZE_MIN) { nodeFontDelta -= 2; applyNodeSize(); }
+  });
 
   // Control buttons — note tooltip font size
   let noteFontSize = 13;

@@ -3,7 +3,6 @@ Tests for r2rome.model — YAML parsing, GraphNode, Graph, validation.
 """
 
 import json
-from pathlib import Path
 
 import pytest
 

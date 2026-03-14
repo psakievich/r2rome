@@ -3,12 +3,10 @@ Tests for r2rome.assemble — edge wiring, ci_coloring, blocks support.
 """
 
 import warnings
-from typing import List
 
-import pytest
 from graphviz import Digraph
 
-from r2rome.model import Graph, GraphNode
+from r2rome.model import GraphNode
 from r2rome.assemble import (
     assemble,
     build_digraph,

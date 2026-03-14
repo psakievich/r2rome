@@ -264,7 +264,7 @@
   });
 
   // Node note tooltips — populated from injected graph data (keyed by SVG element id)
-  const graphData = {{ graph_data_json }};
+  const graphData = {{ graph_data_json | safe }};
   const tooltipEl = document.getElementById('r2rome-tooltip');
   if (tooltipEl && graphData && graphData.nodes) {
     const noteMap = {};

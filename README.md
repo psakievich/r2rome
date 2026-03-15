@@ -39,6 +39,9 @@ DOT source generation (`r2rome dot`) works without Graphviz.
 ## Quick start
 
 ```bash
+# Create a starter project file (includes editor schema comment)
+r2rome init my_project.yaml
+
 # Render to offline HTML (requires graphviz)
 r2rome render project.yaml -o out/
 open out/index.html
@@ -63,7 +66,7 @@ r2rome info project.yaml
 [Live preview — platform-rewrite.yaml](https://psakievich.github.io/r2rome/examples/out/index.html)
 
 The rendered output for [`examples/platform-rewrite.yaml`](examples/platform-rewrite.yaml) is committed to
-[`examples/out/`](examples/out/) and kept up-to-date by CI.
+[`examples/out/`](examples/out/) and kept up-to-date by CI on `main`.
 
 ## YAML schema
 

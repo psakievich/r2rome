@@ -60,7 +60,7 @@ r2rome info project.yaml
 
 ## Example
 
-[Live preview — platform-rewrite.yaml](https://htmlpreview.github.io/?https://github.com/psakievich/r2rome/blob/claude/argcomplete-cli-completion-0cw3Z/examples/out/index.html)
+[Live preview — platform-rewrite.yaml](https://psakievich.github.io/r2rome/examples/out/index.html)
 
 The rendered output for [`examples/platform-rewrite.yaml`](examples/platform-rewrite.yaml) is committed to
 [`examples/out/`](examples/out/) and kept up-to-date by CI.

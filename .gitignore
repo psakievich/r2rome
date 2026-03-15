@@ -17,15 +17,9 @@ env/
 htmlcov/
 
 # Editor
-.vscode/
 .idea/
 *.swp
 *.swo
 
-# r2rome output
-out/
-*.svg
-*.png
-*.pdf
-*.gv
-*.dot
+# r2rome output (root-level only — examples/out/ is intentionally committed)
+/out/

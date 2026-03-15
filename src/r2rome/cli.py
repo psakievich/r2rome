@@ -15,6 +15,9 @@ Usage
   r2rome dot project.yaml -o graph.gv         # DOT source to file
 
   r2rome info project.yaml                    # summary of graph structure
+
+  r2rome init                                 # print starter template to stdout
+  r2rome init project.yaml                    # write starter template to file
 """
 
 from __future__ import annotations
@@ -260,6 +263,60 @@ def cmd_dot(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: init
+# ---------------------------------------------------------------------------
+
+_INIT_TEMPLATE = """\
+# yaml-language-server: $schema=https://raw.githubusercontent.com/psakievich/r2rome/main/schemas/r2rome.schema.json
+name: my_project
+title: My Project
+
+nodes:
+  - name: epic_one
+    label: Epic One
+    status: active
+    note: First major milestone
+    deps: [epic_two]
+    graph:
+      name: epic_one
+      title: Epic One
+      nodes:
+        - name: task_a
+          label: Task A
+          status: done
+          deps: [task_b]
+        - name: task_b
+          label: Task B
+          status: active
+
+  - name: epic_two
+    label: Epic Two
+    status: todo
+    note: Second major milestone
+"""
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    output = args.output
+    if output is None:
+        print(_INIT_TEMPLATE, end="")
+        return 0
+
+    out = Path(output)
+    if out.exists():
+        print(
+            f"[r2rome] ERROR: '{out}' already exists. "
+            "Remove it or choose a different name.",
+            file=sys.stderr,
+        )
+        return 1
+
+    out.write_text(_INIT_TEMPLATE, encoding="utf-8")
+    print(f"[r2rome] created {out}", file=sys.stderr)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Subcommand: info
 # ---------------------------------------------------------------------------
 
@@ -376,6 +433,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max depth before collapsing subgraphs (default: unlimited)",
     )
     p_dot.set_defaults(func=cmd_dot)
+
+    # -- init -----------------------------------------------------------------
+    p_init = sub.add_parser(
+        "init",
+        help="Create a starter project YAML file",
+        description="Write a template project YAML with schema comment, "
+                    "example nodes, and a nested subgraph.\n\n"
+                    "  r2rome init                    # print template to stdout\n"
+                    "  r2rome init my_project.yaml    # write to file",
+    )
+    _act = p_init.add_argument(
+        "output", nargs="?", default=None, metavar="FILE",
+        help="Path to write the new project file. Prints to stdout if omitted.",
+    )
+    if _HAS_ARGCOMPLETE:
+        _act.completer = FilesCompleter(["yaml", "yml"])
+    p_init.set_defaults(func=cmd_init)
 
     # -- info -----------------------------------------------------------------
     p_info = sub.add_parser(

@@ -45,14 +45,15 @@ import yaml
 # Constants
 # ---------------------------------------------------------------------------
 
-VALID_STATUSES = {"done", "active", "todo", "blocked"}
+VALID_STATUSES = {"done", "active", "todo", "blocked", "deprecated"}
 
 # DOT styling per status — fill and font colors
 STATUS_STYLE: Dict[str, Dict[str, str]] = {
-    "done":    {"fillcolor": "#0f2e22", "fontcolor": "#3dcf8e", "color": "#3dcf8e"},
-    "active":  {"fillcolor": "#092820", "fontcolor": "#4af0c4", "color": "#4af0c4"},
-    "todo":    {"fillcolor": "#151b29", "fontcolor": "#7b8baa", "color": "#3a4460"},
-    "blocked": {"fillcolor": "#2a1212", "fontcolor": "#f06a6a", "color": "#f06a6a"},
+    "done":       {"fillcolor": "#0f2e22", "fontcolor": "#3dcf8e", "color": "#3dcf8e"},
+    "active":     {"fillcolor": "#092820", "fontcolor": "#4af0c4", "color": "#4af0c4"},
+    "todo":       {"fillcolor": "#151b29", "fontcolor": "#7b8baa", "color": "#3a4460"},
+    "blocked":    {"fillcolor": "#2a1212", "fontcolor": "#f06a6a", "color": "#f06a6a"},
+    "deprecated": {"fillcolor": "#1a1a1a", "fontcolor": "#555566", "color": "#333344"},
 }
 
 # Styling for 'blocks' edges — visually distinct from deps
@@ -91,10 +92,11 @@ DEFAULT_EDGE_ATTR: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 LIGHT_STATUS_STYLE: Dict[str, Dict[str, str]] = {
-    "done":    {"fillcolor": "#d4f5e4", "fontcolor": "#1a7a4a", "color": "#2d9b63"},
-    "active":  {"fillcolor": "#d4f0f0", "fontcolor": "#0a7a6a", "color": "#0a9b85"},
-    "todo":    {"fillcolor": "#f8f9fa", "fontcolor": "#4a5568", "color": "#b0bac8"},
-    "blocked": {"fillcolor": "#fde8e8", "fontcolor": "#c53030", "color": "#e05252"},
+    "done":       {"fillcolor": "#d4f5e4", "fontcolor": "#1a7a4a", "color": "#2d9b63"},
+    "active":     {"fillcolor": "#d4f0f0", "fontcolor": "#0a7a6a", "color": "#0a9b85"},
+    "todo":       {"fillcolor": "#f8f9fa", "fontcolor": "#4a5568", "color": "#b0bac8"},
+    "blocked":    {"fillcolor": "#fde8e8", "fontcolor": "#c53030", "color": "#e05252"},
+    "deprecated": {"fillcolor": "#f0f0f0", "fontcolor": "#aaaaaa", "color": "#cccccc"},
 }
 
 LIGHT_BLOCKS_EDGE_STYLE: Dict[str, str] = {

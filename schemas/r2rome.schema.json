@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/psakievich/r2rome/main/schemas/r2rome.schema.json",
+  "title": "r2rome project graph",
+  "description": "Schema for r2rome project graph YAML files.",
+  "$ref": "#/$defs/graph",
+  "$defs": {
+    "graph_node": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true,
+      "description": "A single node. Unknown keys are forwarded as DOT node attributes (e.g. href, shape).",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique node identifier (no spaces). Used as the DOT node ID."
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable display label. Falls back to name if omitted."
+        },
+        "deps": {
+          "description": "Names of nodes this node depends on (outgoing edges).",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "blocks": {
+          "description": "Names of nodes this node is blocking (outgoing dashed red edges).",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["done", "active", "todo", "blocked", "deprecated"],
+          "description": "Node status — controls fill/font color in the rendered graph."
+        },
+        "note": {
+          "type": "string",
+          "description": "Free-text annotation shown in tooltips and exports."
+        },
+        "graph": {
+          "$ref": "#/$defs/graph",
+          "description": "Inline nested subgraph (single-subgraph shorthand; use graphs: for multiple)."
+        },
+        "graphs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/graph" },
+          "description": "List of nested subgraphs."
+        }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique graph identifier."
+        },
+        "title": {
+          "type": "string",
+          "description": "Display title rendered as the cluster/graph label. Falls back to name."
+        },
+        "cluster": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, wraps this subgraph in a DOT cluster box."
+        },
+        "color_scheme": {
+          "type": "string",
+          "enum": ["dark", "light"],
+          "default": "dark",
+          "description": "Rendering theme."
+        },
+        "graph_attr": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "DOT graph attributes passed through to Graphviz (e.g. rankdir: LR).",
+          "properties": {
+            "rankdir": {
+              "type": "string",
+              "enum": ["LR", "RL", "TB", "BT"],
+              "description": "Graph layout direction."
+            },
+            "labelloc": { "type": "string" },
+            "bgcolor":  { "type": "string" },
+            "fontname": { "type": "string" },
+            "fontsize": { "type": "string" },
+            "fontcolor": { "type": "string" }
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/graph_node" },
+          "description": "List of nodes in this graph."
+        },
+        "graphs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/graph" },
+          "description": "List of nested subgraphs."
+        }
+      }
+    }
+  }
+}

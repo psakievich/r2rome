@@ -41,6 +41,27 @@ jobs:
           sudo apt-get install -y graphviz
           pytest tests/test_render.py -v
 
+  example-render:
+    name: Example renders successfully
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install r2rome and graphviz
+        run: |
+          pip install -e .
+          sudo apt-get install -y graphviz
+      - name: Render example and verify output files exist
+        run: |
+          r2rome render examples/platform-rewrite.yaml -o /tmp/example-out/
+          test -f /tmp/example-out/index.html
+          test -f /tmp/example-out/infra.html
+          test -f /tmp/example-out/backend.html
+          test -f /tmp/example-out/frontend.html
+          test -f /tmp/example-out/be_data.html
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

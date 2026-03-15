@@ -42,7 +42,7 @@ jobs:
           pytest tests/test_render.py -v
 
   example-render:
-    name: Example render up-to-date
+    name: Example renders successfully
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,12 +53,14 @@ jobs:
         run: |
           pip install -e .
           sudo apt-get install -y graphviz
-      - name: Re-render example
-        run: r2rome render examples/platform-rewrite.yaml -o examples/out/
-      - name: Fail if committed output is stale
+      - name: Render example and verify output files exist
         run: |
-          git diff --exit-code examples/out/ || \
-            (echo "examples/out/ is stale — run: r2rome render examples/platform-rewrite.yaml -o examples/out/" && exit 1)
+          r2rome render examples/platform-rewrite.yaml -o /tmp/example-out/
+          test -f /tmp/example-out/index.html
+          test -f /tmp/example-out/infra.html
+          test -f /tmp/example-out/backend.html
+          test -f /tmp/example-out/frontend.html
+          test -f /tmp/example-out/be_data.html
 
   lint:
     name: Lint

@@ -66,7 +66,7 @@ r2rome info project.yaml
 [Live preview — platform-rewrite.yaml](https://psakievich.github.io/r2rome/examples/out/index.html)
 
 The rendered output for [`examples/platform-rewrite.yaml`](examples/platform-rewrite.yaml) is committed to
-[`examples/out/`](examples/out/) and kept up-to-date by CI on `main`.
+[`examples/out/`](examples/out/). CI verifies the example renders cleanly on every push.
 
 ## YAML schema
 

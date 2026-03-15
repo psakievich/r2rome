@@ -238,8 +238,8 @@ see principle 3.4.
 ### Stubbed / known gaps
 - `color_by_impact` is implemented but the CLI does not yet expose it as a
   subcommand. It is callable from Python directly.
-- `deprecated` status is defined in the design but not yet in `VALID_STATUSES`
-  in `model.py` — add it before first real use.
+- `deprecated` status is now in `VALID_STATUSES` in `model.py` with muted
+  gray styling (dark and light themes).
 - HTML web GUI editing (edit YAML from browser, re-render) — designed for but
   not implemented. The standalone `project-graph.html` tool (in the repo
   history) had this working with a JSON/YAML editor modal.

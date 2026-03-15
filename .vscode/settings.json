@@ -1,0 +1,10 @@
+{
+  "yaml.schemas": {
+    "./schemas/r2rome.schema.json": [
+      "examples/**/*.yaml",
+      "examples/**/*.yml",
+      "*.r2rome.yaml",
+      "*.r2rome.yml"
+    ]
+  }
+}

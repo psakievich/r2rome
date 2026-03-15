@@ -41,6 +41,25 @@ jobs:
           sudo apt-get install -y graphviz
           pytest tests/test_render.py -v
 
+  example-render:
+    name: Example render up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install r2rome and graphviz
+        run: |
+          pip install -e .
+          sudo apt-get install -y graphviz
+      - name: Re-render example
+        run: r2rome render examples/platform-rewrite.yaml -o examples/out/
+      - name: Fail if committed output is stale
+        run: |
+          git diff --exit-code examples/out/ || \
+            (echo "examples/out/ is stale — run: r2rome render examples/platform-rewrite.yaml -o examples/out/" && exit 1)
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

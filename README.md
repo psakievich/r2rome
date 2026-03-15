@@ -58,6 +58,13 @@ r2rome dot project.yaml | dot -Tpng -o graph.png
 r2rome info project.yaml
 ```
 
+## Example
+
+[Live preview — platform-rewrite.yaml](https://htmlpreview.github.io/?https://github.com/psakievich/r2rome/blob/main/examples/out/index.html)
+
+The rendered output for [`examples/platform-rewrite.yaml`](examples/platform-rewrite.yaml) is committed to
+[`examples/out/`](examples/out/) and kept up-to-date by CI.
+
 ## YAML schema
 
 ```yaml
@@ -67,7 +74,7 @@ title: My Project             # optional display title
 nodes:
   - name: epic_one            # required, unique identifier
     label: Epic One           # optional display label
-    status: active            # done | active | todo | blocked
+    status: active            # done | active | todo | blocked | deprecated
     note: "Free text note"
     deps: [epic_two]          # outgoing edges: epic_one -> epic_two
     blocks: [release_v1]      # blocking edges (dashed red): epic_one -> release_v1
@@ -92,6 +99,43 @@ graphs:                       # named subgraphs (recursive)
     graphs:                   # nest further as needed
       - name: task_b
         nodes: [...]
+```
+
+### Editor support
+
+A [JSON Schema](schemas/r2rome.schema.json) is included for tab completion and
+validation in any editor that supports `yaml-language-server`.
+
+**Per-file (any editor)** — add this comment to the top of your YAML file:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/psakievich/r2rome/main/schemas/r2rome.schema.json
+```
+
+Or use a relative path when working inside this repo:
+
+```yaml
+# yaml-language-server: $schema=../schemas/r2rome.schema.json
+```
+
+**VS Code** — install the [YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml).
+The included `.vscode/settings.json` auto-applies the schema to `examples/**/*.yaml`
+and `*.r2rome.yaml` files without needing the comment.
+
+**Neovim** — configure `yamlls` via `nvim-lspconfig`:
+
+```lua
+require("lspconfig").yamlls.setup({
+  settings = {
+    yaml = {
+      schemas = {
+        ["https://raw.githubusercontent.com/psakievich/r2rome/main/schemas/r2rome.schema.json"] = {
+          "examples/*.yaml", "*.r2rome.yaml"
+        }
+      }
+    }
+  }
+})
 ```
 
 ## Development

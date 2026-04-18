@@ -36,6 +36,7 @@ from r2rome.render import (
     to_dot_source,
 )
 from r2rome.html_writer import write_all_pages, graph_to_json_data
+from r2rome.scratch import run_scratch
 
 # argcomplete is an optional dependency — graceful degradation when absent
 try:
@@ -366,6 +367,14 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: scratch
+# ---------------------------------------------------------------------------
+
+def cmd_scratch(args: argparse.Namespace) -> int:
+    return run_scratch(Path(args.input_file))
+
+
+# ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
 
@@ -483,6 +492,26 @@ def build_parser() -> argparse.ArgumentParser:
     if _HAS_ARGCOMPLETE:
         _act.completer = FilesCompleter(["yaml", "yml", "json"])
     p_info.set_defaults(func=cmd_info)
+
+    # -- scratch --------------------------------------------------------------
+    p_scratch = sub.add_parser(
+        "scratch",
+        help="Interactive scratch mode — stream node ideas into a project file",
+        description="Open an interactive prompt to quickly add nodes, set statuses,\n"
+                    "wire edges, and attach notes without writing YAML by hand.\n\n"
+                    "  name              create node\n"
+                    "  name: Label       set label\n"
+                    "  name active       set status\n"
+                    "  name -> dep       add dep edge\n"
+                    "  name -| blocked   add blocks edge\n"
+                    '  name "note"       set note\n\n'
+                    "Tab completes node names. Empty line or ^D saves and quits.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _act = p_scratch.add_argument("input_file", help="Path to project .yaml file")
+    if _HAS_ARGCOMPLETE:
+        _act.completer = FilesCompleter(["yaml", "yml"])
+    p_scratch.set_defaults(func=cmd_scratch)
 
     return parser
 

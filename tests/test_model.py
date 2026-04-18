@@ -134,6 +134,68 @@ class TestGraph:
         })
         assert set(g.all_node_names()) == {"a", "b"}
 
+    def test_string_node_shorthand(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "nodes": ["a", "b", "c"],
+        })
+        assert [n.name for n in g.nodes] == ["a", "b", "c"]
+        assert [n.label for n in g.nodes] == ["a", "b", "c"]
+
+    def test_string_and_dict_nodes_mixed(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "nodes": ["a", {"name": "b", "status": "active"}, "c"],
+        })
+        assert [n.name for n in g.nodes] == ["a", "b", "c"]
+        assert g.nodes[1].status == "active"
+        assert g.nodes[0].status is None
+
+    def test_inline_graph_inherits_name_and_title(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "nodes": [{
+                "name": "epic",
+                "label": "Epic One",
+                "graph": {
+                    "nodes": [{"name": "task_a"}],
+                },
+            }],
+        })
+        child = g.nodes[0].children
+        assert child is not None
+        assert child.name == "epic"
+        assert child.title == "Epic One"
+
+    def test_inline_graph_explicit_name_not_overridden(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "nodes": [{
+                "name": "epic",
+                "label": "Epic One",
+                "graph": {
+                    "name": "custom_name",
+                    "title": "Custom Title",
+                    "nodes": [{"name": "task_a"}],
+                },
+            }],
+        })
+        child = g.nodes[0].children
+        assert child.name == "custom_name"
+        assert child.title == "Custom Title"
+
+    def test_inline_graph_title_falls_back_to_name(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "nodes": [{
+                "name": "epic",
+                "graph": {"nodes": [{"name": "task_a"}]},
+            }],
+        })
+        child = g.nodes[0].children
+        assert child.name == "epic"
+        assert child.title == "epic"
+
 
 class TestLoad:
     def test_load_simple(self, simple_yaml_file):

@@ -235,10 +235,14 @@ class GraphNode:
             if k not in _RESERVED_NODE_KEYS
         }
 
-        # Nested subgraph: 'graph' (singular dict) or 'graphs' (list of subgraphs)
+        # Nested subgraph: 'graph' (singular dict) or 'graphs' (list of subgraphs).
+        # Name and title are inherited from the parent node when not specified.
         children: Optional[Graph] = None
         if "graph" in data:
-            children = Graph.from_dict(data["graph"])
+            graph_data = dict(data["graph"])
+            graph_data.setdefault("name", name)
+            graph_data.setdefault("title", label or name)
+            children = Graph.from_dict(graph_data)
         elif "graphs" in data:
             children = Graph.from_dict({"name": name, "graphs": data["graphs"]})
 
@@ -304,7 +308,8 @@ class Graph:
         graph_attr   = data.get("graph_attr", {})
 
         nodes: List[GraphNode] = [
-            GraphNode.from_dict(n) for n in data.get("nodes", [])
+            GraphNode(name=n) if isinstance(n, str) else GraphNode.from_dict(n)
+            for n in data.get("nodes", [])
         ]
 
         subgraphs: List[Graph] = [

@@ -21,5 +21,6 @@ htmlcov/
 *.swp
 *.swo
 
-# r2rome output (root-level only — examples/out/ is intentionally committed)
+# r2rome output — regenerate with: r2rome render <file.yaml> -o out/
 /out/
+examples/out*/

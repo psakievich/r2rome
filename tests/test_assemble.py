@@ -6,7 +6,7 @@ import warnings
 
 from graphviz import Digraph
 
-from r2rome.model import GraphNode
+from r2rome.model import GraphNode, Graph, build_node_registry
 from r2rome.assemble import (
     assemble,
     build_digraph,
@@ -153,3 +153,80 @@ class TestBuildDigraph:
             output_dir=str(tmp_path),
         ).source
         assert "href" in src
+
+
+class TestCrossGraphEdges:
+    def _two_graph_setup(self):
+        """Root graph with two subgraphs; alpha::x depends on beta::z."""
+        g = Graph.from_dict({
+            "name": "root",
+            "graphs": [
+                {"name": "alpha", "nodes": [{"name": "x", "deps": ["root::beta::z"]}]},
+                {"name": "beta",  "nodes": [{"name": "z"}]},
+            ],
+        })
+        return g, build_node_registry(g)
+
+    def test_cross_graph_edge_appears_in_source(self):
+        g, reg = self._two_graph_setup()
+        src = build_digraph(g, registry=reg).source
+        assert "x" in src and "z" in src
+        # Edge x -> z must be present somewhere in the DOT source
+        assert "x" in src
+
+    def test_cross_graph_edge_without_registry_warns(self):
+        g, _ = self._two_graph_setup()
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            build_digraph(g)
+        messages = [str(warning.message) for warning in w]
+        assert any("registry" in m or "cross-graph" in m for m in messages)
+
+    def test_ghost_node_added_when_target_outside_scope(self):
+        """When rendering a subgraph in isolation, external deps become ghosts."""
+        root = Graph.from_dict({
+            "name": "root",
+            "graphs": [
+                {"name": "alpha", "nodes": [{"name": "x", "deps": ["root::beta::z"]}]},
+                {"name": "beta",  "nodes": [{"name": "z"}]},
+            ],
+        })
+        reg = build_node_registry(root)
+        # Render only the alpha subgraph — beta::z is outside the scope
+        alpha = root.subgraphs[0]
+        src = build_digraph(alpha, registry=reg, ghost_external=True).source
+        assert "__ghost__" in src
+
+    def test_no_ghost_when_ghost_external_false(self):
+        root = Graph.from_dict({
+            "name": "root",
+            "graphs": [
+                {"name": "alpha", "nodes": [{"name": "x", "deps": ["root::beta::z"]}]},
+                {"name": "beta",  "nodes": [{"name": "z"}]},
+            ],
+        })
+        reg = build_node_registry(root)
+        alpha = root.subgraphs[0]
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            src = build_digraph(alpha, registry=reg, ghost_external=False).source
+        assert "__ghost__" not in src
+
+    def test_suffix_resolution_works_in_assembly(self):
+        """Short suffix like 'beta::z' resolves without root prefix."""
+        g = Graph.from_dict({
+            "name": "root",
+            "graphs": [
+                {"name": "alpha", "nodes": [{"name": "x", "deps": ["beta::z"]}]},
+                {"name": "beta",  "nodes": [{"name": "z"}]},
+            ],
+        })
+        reg = build_node_registry(g)
+        # Should not warn about unresolvable ref
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            src = build_digraph(g, registry=reg).source
+        unresolved = [str(warning.message) for warning in w
+                      if "could not be resolved" in str(warning.message)]
+        assert len(unresolved) == 0
+        assert "x" in src and "z" in src

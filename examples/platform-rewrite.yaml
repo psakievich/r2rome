@@ -8,8 +8,13 @@
 #   status:  done | active | todo | blocked
 #   note:    freeform description (optional)
 #   graph:   nested subgraph (recursive)
-#   deps:    outgoing edges to other nodes
+#   deps:    outgoing edges to other nodes (:: prefix = cross-graph reference)
 #   blocks:  outgoing dashed edges (blocking relationship)
+#
+# Cross-graph dep examples in this file:
+#   fe_auth  -> backend::be_auth   (frontend auth UI needs backend auth service)
+#   fe_dash  -> backend::be_api    (dashboard calls the REST API gateway)
+#   infra_sec -| be_data::db_replica  (secrets review blocks read-replica sign-off)
 
 name: root
 title: Platform Rewrite v2
@@ -21,8 +26,6 @@ nodes:
     note: Cloud migration and IaC setup
     deps: [backend, frontend]
     graph:
-      name: infra
-      title: Infrastructure Epic
       nodes:
         - name: infra_tf
           label: Terraform modules
@@ -46,6 +49,7 @@ nodes:
           label: Secrets management
           status: blocked
           note: Waiting on security review
+          blocks: [be_data::db_replica]
 
   - name: backend
     label: Backend Services
@@ -53,8 +57,6 @@ nodes:
     note: API layer and data services
     deps: [frontend, m_alpha]
     graph:
-      name: backend
-      title: Backend Services Epic
       nodes:
         - name: be_auth
           label: Auth service
@@ -75,8 +77,6 @@ nodes:
           status: active
           note: DB + cache + migrations
           graph:
-            name: be_data
-            title: Data Layer
             nodes:
               - name: db_schema
                 label: Schema migrations
@@ -103,8 +103,6 @@ nodes:
     note: "Web UI — React SPA"
     deps: [m_alpha]
     graph:
-      name: frontend
-      title: Frontend Epic
       nodes:
         - name: fe_ds
           label: Design system
@@ -114,13 +112,13 @@ nodes:
         - name: fe_auth
           label: Auth UI flows
           status: todo
-          note: Depends on BE auth
-          deps: [fe_dash]
+          note: Blocked until BE auth is available
+          deps: [fe_dash, backend::be_auth]
         - name: fe_dash
           label: Dashboard
           status: todo
           note: Main product interface
-          deps: [fe_e2e]
+          deps: [fe_e2e, backend::be_api]
         - name: fe_e2e
           label: E2E test suite
           status: todo

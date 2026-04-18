@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from r2rome.model import Graph, GraphNode, load, _coerce_list
+from r2rome.model import Graph, GraphNode, load, _coerce_list, build_node_registry, resolve_cross_ref
 
 
 class TestGraphNode:
@@ -295,6 +295,83 @@ class TestLoad:
             assert jn.status == yn.status
             assert jn.deps == yn.deps
             assert jn.blocks == yn.blocks
+
+
+class TestBuildNodeRegistry:
+    def _simple_graph(self):
+        return Graph.from_dict({
+            "name": "root",
+            "nodes": [{"name": "a"}, {"name": "b"}],
+        })
+
+    def test_root_nodes_present(self):
+        reg = build_node_registry(self._simple_graph())
+        assert "root::a" in reg
+        assert "root::b" in reg
+
+    def test_nested_subgraph_nodes_present(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "graphs": [{
+                "name": "epic",
+                "nodes": [{"name": "task_a"}, {"name": "task_b"}],
+            }],
+        })
+        reg = build_node_registry(g)
+        assert "root::epic::task_a" in reg
+        assert "root::epic::task_b" in reg
+
+    def test_inline_child_graph_nodes_present(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "nodes": [{
+                "name": "epic",
+                "graph": {"nodes": [{"name": "task_a"}]},
+            }],
+        })
+        reg = build_node_registry(g)
+        assert "root::epic::task_a" in reg
+
+    def test_registry_values_are_graph_nodes(self):
+        reg = build_node_registry(self._simple_graph())
+        assert isinstance(reg["root::a"], GraphNode)
+
+
+class TestResolveCrossRef:
+    def _registry(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "graphs": [
+                {"name": "alpha", "nodes": [{"name": "x"}, {"name": "y"}]},
+                {"name": "beta",  "nodes": [{"name": "x"}, {"name": "z"}]},
+            ],
+        })
+        return build_node_registry(g)
+
+    def test_exact_match(self):
+        reg = self._registry()
+        result = resolve_cross_ref("root::alpha::x", reg)
+        assert result is not None
+        full_path, node = result
+        assert full_path == "root::alpha::x"
+        assert node.name == "x"
+
+    def test_suffix_match_unambiguous(self):
+        reg = self._registry()
+        result = resolve_cross_ref("alpha::x", reg)
+        assert result is not None
+        assert result[0] == "root::alpha::x"
+
+    def test_suffix_match_ambiguous_warns(self):
+        reg = self._registry()
+        with pytest.warns(UserWarning, match="ambiguous"):
+            result = resolve_cross_ref("x", reg)
+        assert result is None
+
+    def test_no_match_returns_none(self):
+        reg = self._registry()
+        result = resolve_cross_ref("nonexistent::node", reg)
+        assert result is None
 
 
 class TestCoerceList:

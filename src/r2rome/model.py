@@ -36,7 +36,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -360,6 +360,62 @@ def load(path: os.PathLike) -> Graph:
         raise ValueError(f"Expected a mapping at the top level, got: {type(data)}")
 
     return Graph.from_dict(data)
+
+
+# ---------------------------------------------------------------------------
+# Cross-graph reference registry
+# ---------------------------------------------------------------------------
+
+def build_node_registry(
+    graph: "Graph",
+    _prefix: str = "",
+) -> Dict[str, "GraphNode"]:
+    """Return a flat map of full ``::``-delimited paths to GraphNode objects.
+
+    The root graph name is included as the first segment::
+
+        root::epic::task_a
+
+    Pairs with :func:`resolve_cross_ref` to look up deps/blocks that contain
+    ``::`` (cross-graph references).
+    """
+    registry: Dict[str, GraphNode] = {}
+    base = f"{_prefix}::{graph.name}" if _prefix else graph.name
+    for node in graph.nodes:
+        path = f"{base}::{node.name}"
+        registry[path] = node
+        if node.children:
+            registry.update(build_node_registry(node.children, _prefix=base))
+    for sg in graph.subgraphs:
+        registry.update(build_node_registry(sg, _prefix=base))
+    return registry
+
+
+def resolve_cross_ref(
+    ref: str,
+    registry: Dict[str, "GraphNode"],
+) -> Optional[Tuple[str, "GraphNode"]]:
+    """Resolve a ``::`` path reference against the registry.
+
+    Tries exact match first, then suffix match so users can write
+    ``epic::task_a`` instead of ``root::epic::task_a`` when unambiguous.
+
+    Returns ``(full_path, node)`` or ``None`` if unresolvable.
+    Emits a warning on ambiguous suffix matches.
+    """
+    import warnings
+    if ref in registry:
+        return ref, registry[ref]
+    matches = [p for p in registry if p.endswith(f"::{ref}")]
+    if len(matches) == 1:
+        return matches[0], registry[matches[0]]
+    if len(matches) > 1:
+        warnings.warn(
+            f"Cross-graph reference '{ref}' is ambiguous — matches: "
+            f"{sorted(matches)}. Use a more specific path.",
+            stacklevel=4,
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------

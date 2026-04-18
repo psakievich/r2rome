@@ -28,8 +28,9 @@ from pathlib import Path
 from typing import List, Optional
 
 
-from r2rome.model import Graph
+from r2rome.model import Graph, GraphNode
 from r2rome.assemble import build_digraph
+from typing import Dict
 
 
 # ---------------------------------------------------------------------------
@@ -88,20 +89,30 @@ def to_dot_source(
     graph: Graph,
     max_depth: Optional[int] = None,
     output_dir: Optional[str] = None,
+    registry: Optional[Dict[str, GraphNode]] = None,
+    ghost_external: bool = False,
 ) -> str:
     """Return the DOT language source for a graph.
 
     This is pure Python — no dot binary required.
 
     Args:
-        graph:      The Graph to convert.
-        max_depth:  Depth limit for subgraph expansion (None = unlimited).
-        output_dir: Used to generate href paths on collapsed nodes.
+        graph:          The Graph to convert.
+        max_depth:      Depth limit for subgraph expansion (None = unlimited).
+        output_dir:     Used to generate href paths on collapsed nodes.
+        registry:       Node registry for cross-graph edge resolution.
+        ghost_external: Render out-of-scope deps as ghost nodes.
 
     Returns:
         A DOT language string suitable for piping to dot or saving as .gv.
     """
-    digraph = build_digraph(graph, max_depth=max_depth, output_dir=output_dir)
+    digraph = build_digraph(
+        graph,
+        max_depth=max_depth,
+        output_dir=output_dir,
+        registry=registry,
+        ghost_external=ghost_external,
+    )
     return digraph.source
 
 
@@ -115,15 +126,19 @@ def render_graph(
     fmt: str = "svg",
     max_depth: Optional[int] = None,
     cleanup: bool = True,
+    registry: Optional[Dict[str, GraphNode]] = None,
+    ghost_external: bool = False,
 ) -> Path:
     """Render a graph to an image file using the dot binary.
 
     Args:
-        graph:       The Graph to render.
-        output_path: Destination file path (without extension — graphviz adds it).
-        fmt:         Output format: 'svg', 'png', 'pdf'. Default 'svg'.
-        max_depth:   Collapse subgraphs beyond this depth to hyperlinked nodes.
-        cleanup:     Remove the intermediate .dot file after rendering.
+        graph:          The Graph to render.
+        output_path:    Destination file path (without extension).
+        fmt:            Output format: 'svg', 'png', 'pdf'. Default 'svg'.
+        max_depth:      Collapse subgraphs beyond this depth to hyperlinked nodes.
+        cleanup:        Remove the intermediate .dot file after rendering.
+        registry:       Node registry for cross-graph edge resolution.
+        ghost_external: Render out-of-scope deps as ghost nodes.
 
     Returns:
         Path to the rendered output file (output_path with format extension).
@@ -137,6 +152,8 @@ def render_graph(
         graph,
         max_depth=max_depth,
         output_dir=str(output_path.parent),
+        registry=registry,
+        ghost_external=ghost_external,
     )
 
     # graphviz library renders and optionally cleans up the intermediate source
@@ -154,6 +171,8 @@ def render_all_levels(
     fmt: str = "svg",
     max_depth: Optional[int] = None,
     cleanup: bool = True,
+    registry: Optional[Dict[str, GraphNode]] = None,
+    ghost_external: bool = False,
 ) -> List[Path]:
     """Render each graph level to a separate file.
 
@@ -162,11 +181,13 @@ def render_all_levels(
     file are given an href so SVG output is navigable in a browser.
 
     Args:
-        root:       Root Graph to start from.
-        output_dir: Directory to write rendered files into.
-        fmt:        Output format.
-        max_depth:  Passed through to each render call.
-        cleanup:    Remove intermediate .dot files.
+        root:           Root Graph to start from.
+        output_dir:     Directory to write rendered files into.
+        fmt:            Output format.
+        max_depth:      Passed through to each render call.
+        cleanup:        Remove intermediate .dot files.
+        registry:       Node registry for cross-graph edge resolution.
+        ghost_external: Render out-of-scope deps as ghost nodes.
 
     Returns:
         List of Paths to all rendered files.
@@ -184,13 +205,14 @@ def render_all_levels(
             fmt=fmt,
             max_depth=max_depth,
             cleanup=cleanup,
+            registry=registry,
+            ghost_external=ghost_external,
         )
         rendered.append(path)
 
         for subgraph in graph.subgraphs:
             _render_recursive(subgraph, depth + 1)
 
-        # Also recurse into node children (inline child graphs)
         for node in graph.nodes:
             if node.children is not None:
                 _render_recursive(node.children, depth + 1)

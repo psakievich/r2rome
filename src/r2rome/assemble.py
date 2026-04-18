@@ -21,7 +21,8 @@ Key differences from the original:
 from __future__ import annotations
 
 import warnings
-from typing import Dict, List, Optional, Set
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from graphviz import Digraph
 
@@ -29,7 +30,46 @@ from r2rome.model import (
     THEMES,
     Graph,
     GraphNode,
+    resolve_cross_ref,
 )
+
+
+# ---------------------------------------------------------------------------
+# Cross-graph assembly state
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _CrossCtx:
+    """Mutable state threaded through the recursive build for cross-graph edges.
+
+    Initialized once at the root call of build_digraph and passed into every
+    _add_edges call so deferred edges and ghost nodes accumulate in one place
+    for final emission at the root level.
+    """
+    registry:      Dict[str, GraphNode]        # full-path → node
+    renderable:    Set[str]                    # short names present in this DOT scope
+    all_clusters:  Set[str]                    # short names rendered as clusters
+    deferred:      List[Tuple[str, str, str]]  # (src, tgt, "dep"|"blocks")
+    ghost_nodes:   Dict[str, str]              # ghost_dot_id → display label
+    ghost_edges:   List[Tuple[str, str, str]]  # (src, ghost_dot_id, "dep"|"blocks")
+    ghost_external: bool
+    theme:         Dict[str, Any]
+
+
+def _ghost_dot_id(full_path: str) -> str:
+    """Convert a full ::path to a safe DOT node identifier."""
+    return "__ghost__" + full_path.replace("::", "__")
+
+
+def _collect_renderable(graph: Graph) -> Set[str]:
+    """Recursively collect all node short-names in a graph tree."""
+    names: Set[str] = {n.name for n in graph.nodes}
+    for sg in graph.subgraphs:
+        names |= _collect_renderable(sg)
+    for node in graph.nodes:
+        if node.children:
+            names |= _collect_renderable(node.children)
+    return names
 
 
 # ---------------------------------------------------------------------------
@@ -118,11 +158,19 @@ def _add_edges(
     known_names: Set[str],
     cluster_names: Optional[Set[str]] = None,
     theme: Optional[Dict] = None,
+    cross_ctx: Optional[_CrossCtx] = None,
 ) -> None:
     """Add deps and blocks edges from a node into the graph.
 
-    Edges referencing names not in known_names are skipped with a warning
-    rather than hard-failing, so partial graphs render gracefully.
+    Local edges (no ``::`` in the name) behave as before — skipped with a
+    warning when the target is unknown in this graph level.
+
+    Cross-graph edges (name contains ``::``) are resolved against the registry
+    in *cross_ctx* when provided:
+      - Target exists in the render scope → deferred to root for emission.
+      - Target outside the render scope and ghost_external=True → a ghost node
+        and edge are recorded for emission at root.
+      - Otherwise → warning and skip.
 
     When cluster_names is provided, edges to/from cluster nodes use
     lhead/ltail so graphviz draws arrows to the cluster boundary rather
@@ -133,35 +181,71 @@ def _add_edges(
         theme = THEMES["dark"]
     cluster_names = cluster_names or set()
 
-    for dep in node.deps:
-        if dep not in known_names:
+    def _handle_ref(ref: str, kind: str) -> None:
+        is_cross = "::" in ref
+
+        if not is_cross:
+            # Local reference — existing behaviour
+            if ref not in known_names:
+                warnings.warn(
+                    f"Node '{node.name}' has {kind} '{ref}' which is not defined "
+                    "in this graph level — edge skipped.",
+                    stacklevel=4,
+                )
+                return
+            edge_attrs: Dict[str, str] = {}
+            if kind == "blocks":
+                edge_attrs = dict(theme["blocks_edge"])
+            if node.name in cluster_names:
+                edge_attrs["ltail"] = f"cluster_{node.name}"
+            if ref in cluster_names:
+                edge_attrs["lhead"] = f"cluster_{ref}"
+            graph.edge(node.name, ref, **edge_attrs)
+            return
+
+        # Cross-graph reference
+        if cross_ctx is None:
             warnings.warn(
-                f"Node '{node.name}' has dep '{dep}' which is not defined "
-                "in this graph level — edge skipped.",
-                stacklevel=3,
+                f"Node '{node.name}' has cross-graph {kind} '{ref}' but no "
+                "registry was provided — edge skipped. Pass registry= to "
+                "build_digraph() to enable cross-graph edges.",
+                stacklevel=4,
             )
-            continue
-        edge_attrs: Dict[str, str] = {}
-        if node.name in cluster_names:
-            edge_attrs["ltail"] = f"cluster_{node.name}"
-        if dep in cluster_names:
-            edge_attrs["lhead"] = f"cluster_{dep}"
-        graph.edge(node.name, dep, **edge_attrs)
+            return
+
+        resolved = resolve_cross_ref(ref, cross_ctx.registry)
+        if resolved is None:
+            warnings.warn(
+                f"Node '{node.name}' has cross-graph {kind} '{ref}' which "
+                "could not be resolved — edge skipped.",
+                stacklevel=4,
+            )
+            return
+
+        _full_path, _tgt_node = resolved
+        tgt_short = _tgt_node.name
+
+        if tgt_short in cross_ctx.renderable:
+            # Both endpoints will be in the DOT graph — defer to root
+            cross_ctx.deferred.append((node.name, tgt_short, kind))
+        elif cross_ctx.ghost_external:
+            ghost_id = _ghost_dot_id(_full_path)
+            ghost_label = _full_path.split("::")[-1]
+            cross_ctx.ghost_nodes[ghost_id] = ghost_label
+            cross_ctx.ghost_edges.append((node.name, ghost_id, kind))
+        else:
+            warnings.warn(
+                f"Node '{node.name}' has cross-graph {kind} '{ref}' which "
+                "targets a node outside the current render scope — edge "
+                "skipped. Use --ghost-external to render it as a ghost node.",
+                stacklevel=4,
+            )
+
+    for dep in node.deps:
+        _handle_ref(dep, "dep")
 
     for blocked in node.blocks:
-        if blocked not in known_names:
-            warnings.warn(
-                f"Node '{node.name}' blocks '{blocked}' which is not defined "
-                "in this graph level — edge skipped.",
-                stacklevel=3,
-            )
-            continue
-        edge_attrs = dict(theme["blocks_edge"])
-        if node.name in cluster_names:
-            edge_attrs["ltail"] = f"cluster_{node.name}"
-        if blocked in cluster_names:
-            edge_attrs["lhead"] = f"cluster_{blocked}"
-        graph.edge(node.name, blocked, **edge_attrs)
+        _handle_ref(blocked, "blocks")
 
 
 def assemble(nodes: List[GraphNode], graph: Digraph) -> None:
@@ -187,6 +271,7 @@ def _build_node_cluster(
     max_depth: Optional[int],
     output_dir: Optional[str],
     theme: Optional[Dict] = None,
+    cross_ctx: Optional[_CrossCtx] = None,
 ) -> Digraph:
     """Build a DOT cluster subgraph from a node's child graph.
 
@@ -252,19 +337,25 @@ def _build_node_cluster(
             cluster.node(child_node.name, label=child_node.label or child_node.name, **collapsed_attrs)
         elif has_children:
             child_clusters.add(child_node.name)
+            if cross_ctx is not None:
+                cross_ctx.all_clusters.add(child_node.name)
             sub_cluster = _build_node_cluster(
                 child_node,
                 current_depth=current_depth + 1,
                 max_depth=max_depth,
                 output_dir=output_dir,
                 theme=theme,
+                cross_ctx=cross_ctx,
             )
             cluster.subgraph(sub_cluster)
         else:
             _add_node(child_node, cluster, theme=theme)
 
     for child_node in child_graph.nodes:
-        _add_edges(child_node, cluster, child_known, cluster_names=child_clusters, theme=theme)
+        _add_edges(
+            child_node, cluster, child_known,
+            cluster_names=child_clusters, theme=theme, cross_ctx=cross_ctx,
+        )
 
     return cluster
 
@@ -280,6 +371,9 @@ def build_digraph(
     max_depth: Optional[int] = None,
     output_dir: Optional[str] = None,
     theme: Optional[Dict] = None,
+    registry: Optional[Dict[str, GraphNode]] = None,
+    ghost_external: bool = False,
+    _cross_ctx: Optional[_CrossCtx] = None,
 ) -> Digraph:
     """Recursively assemble a Graph into a graphviz.Digraph.
 
@@ -288,13 +382,19 @@ def build_digraph(
     so that edges targeting clusters connect at the cluster boundary.
 
     Args:
-        graph:         The Graph to assemble.
-        parent:        Parent Digraph to attach a subgraph to. None = root.
-        current_depth: Current recursion depth (0 = root call).
-        max_depth:     Maximum depth before collapsing subgraphs to linked
-                       nodes. None = unlimited (original behavior).
-        output_dir:    Base output directory for generating href links on
-                       collapsed nodes. Required when max_depth is set.
+        graph:          The Graph to assemble.
+        parent:         Parent Digraph to attach a subgraph to. None = root.
+        current_depth:  Current recursion depth (0 = root call).
+        max_depth:      Maximum depth before collapsing subgraphs to linked
+                        nodes. None = unlimited (original behavior).
+        output_dir:     Base output directory for generating href links on
+                        collapsed nodes. Required when max_depth is set.
+        registry:       Full node registry from build_node_registry(). When
+                        provided, deps/blocks containing '::' are resolved as
+                        cross-graph references.
+        ghost_external: When True, deps/blocks that point outside the current
+                        render scope are rendered as dashed ghost nodes rather
+                        than being silently skipped.
 
     Returns:
         The assembled Digraph (same object as parent if parent was provided).
@@ -305,6 +405,19 @@ def build_digraph(
     if theme is None:
         scheme = getattr(graph, "color_scheme", "dark")
         theme = THEMES.get(scheme, THEMES["dark"])
+
+    # Initialise cross-graph context once at the root call
+    if is_root and registry is not None and _cross_ctx is None:
+        _cross_ctx = _CrossCtx(
+            registry=registry,
+            renderable=_collect_renderable(graph),
+            all_clusters=set(),
+            deferred=[],
+            ghost_nodes={},
+            ghost_edges=[],
+            ghost_external=ghost_external,
+            theme=theme,
+        )
 
     g_attr = dict(graph.graph_attr)
     if is_root:
@@ -345,12 +458,15 @@ def build_digraph(
         elif node.children is not None:
             # Render child graph as an inline cluster
             inline_clusters.add(node.name)
+            if _cross_ctx is not None:
+                _cross_ctx.all_clusters.add(node.name)
             cluster = _build_node_cluster(
                 node,
                 current_depth=current_depth + 1,
                 max_depth=max_depth,
                 output_dir=output_dir,
                 theme=theme,
+                cross_ctx=_cross_ctx,
             )
             target.subgraph(cluster)
         else:
@@ -358,7 +474,10 @@ def build_digraph(
 
     # Add edges after all nodes/clusters are placed
     for node in graph.nodes:
-        _add_edges(node, target, known_names, cluster_names=inline_clusters, theme=theme)
+        _add_edges(
+            node, target, known_names,
+            cluster_names=inline_clusters, theme=theme, cross_ctx=_cross_ctx,
+        )
 
     # Recurse into top-level subgraphs (graph.graphs in YAML) unless at depth limit
     for subgraph in graph.subgraphs:
@@ -371,8 +490,13 @@ def build_digraph(
             max_depth=max_depth,
             output_dir=output_dir,
             theme=theme,
+            _cross_ctx=_cross_ctx,
         )
         target.subgraph(sub_dot)
+
+    # At root: emit ghost nodes, ghost edges, and deferred cross-graph edges
+    if is_root and _cross_ctx is not None:
+        _emit_ghosts_and_deferred(dot, _cross_ctx)
 
     if is_root:
         return dot
@@ -381,6 +505,42 @@ def build_digraph(
         parent.subgraph(dot)
 
     return parent or dot
+
+
+def _emit_ghosts_and_deferred(dot: Digraph, ctx: _CrossCtx) -> None:
+    """Emit ghost nodes and all deferred cross-graph edges into the root Digraph."""
+    theme = ctx.theme
+
+    # Ghost node style — muted dashed box, theme-aware
+    ghost_attr: Dict[str, str] = {
+        "style":     "dashed,filled",
+        "fillcolor": theme["graph_attr"]["bgcolor"],
+        "color":     theme["edge_attr"]["color"],
+        "fontcolor": theme["edge_attr"]["fontcolor"],
+        "fontname":  theme["node_attr"]["fontname"],
+        "fontsize":  theme["node_attr"].get("fontsize", "10"),
+        "shape":     "box",
+    }
+
+    for ghost_id, label in ctx.ghost_nodes.items():
+        full_path = ghost_id.replace("__ghost__", "").replace("__", "::")
+        dot.node(ghost_id, label=label, tooltip=full_path, **ghost_attr)
+
+    for src, ghost_id, kind in ctx.ghost_edges:
+        if kind == "blocks":
+            dot.edge(src, ghost_id, **dict(theme["blocks_edge"]))
+        else:
+            dot.edge(src, ghost_id)
+
+    for src, tgt, kind in ctx.deferred:
+        edge_attrs: Dict[str, str] = {}
+        if kind == "blocks":
+            edge_attrs = dict(theme["blocks_edge"])
+        if src in ctx.all_clusters:
+            edge_attrs["ltail"] = f"cluster_{src}"
+        if tgt in ctx.all_clusters:
+            edge_attrs["lhead"] = f"cluster_{tgt}"
+        dot.edge(src, tgt, **edge_attrs)
 
 
 def _find_subgraph(graph: Graph, node_name: str) -> Optional[Graph]:

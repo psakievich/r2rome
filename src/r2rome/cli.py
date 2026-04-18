@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from r2rome import __version__
-from r2rome.model import load, Graph
+from r2rome.model import load, Graph, build_node_registry
 from r2rome.render import (
     dot_version,
     find_dot_binary,
@@ -152,12 +152,13 @@ def _node_name_completer(prefix: str, parsed_args: argparse.Namespace, **kwargs)
 # ---------------------------------------------------------------------------
 
 def cmd_render(args: argparse.Namespace) -> int:
-    input_path  = Path(args.input_file)
-    output_dir  = Path(args.output)
-    fmt         = args.fmt
-    cdn         = args.cdn
-    max_depth   = args.depth
-    keep_dot    = args.keep_dot
+    input_path     = Path(args.input_file)
+    output_dir     = Path(args.output)
+    fmt            = args.fmt
+    cdn            = args.cdn
+    max_depth      = args.depth
+    keep_dot       = args.keep_dot
+    ghost_external = args.ghost_external
 
     if not find_dot_binary():
         print(
@@ -175,6 +176,8 @@ def cmd_render(args: argparse.Namespace) -> int:
         print(f"[r2rome] ERROR: {e}", file=sys.stderr)
         return 1
 
+    registry = build_node_registry(graph)
+
     svg_dir = output_dir / "svg"
     svg_dir.mkdir(parents=True, exist_ok=True)
 
@@ -186,6 +189,8 @@ def cmd_render(args: argparse.Namespace) -> int:
             fmt=fmt,
             max_depth=max_depth,
             cleanup=not keep_dot,
+            registry=registry,
+            ghost_external=ghost_external,
         )
     except RuntimeError as e:
         print(f"[r2rome] ERROR: {e}", file=sys.stderr)
@@ -228,16 +233,19 @@ def cmd_render(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_dot(args: argparse.Namespace) -> int:
-    input_path = Path(args.input_file)
-    level_name = args.level
-    output     = args.output
-    max_depth  = args.depth
+    input_path     = Path(args.input_file)
+    level_name     = args.level
+    output         = args.output
+    max_depth      = args.depth
+    ghost_external = args.ghost_external
 
     try:
         graph = load(input_path)
     except (FileNotFoundError, ValueError) as e:
         print(f"[r2rome] ERROR: {e}", file=sys.stderr)
         return 1
+
+    registry = build_node_registry(graph)
 
     target = graph
     if level_name:
@@ -250,7 +258,12 @@ def cmd_dot(args: argparse.Namespace) -> int:
             return 1
         target = found
 
-    source = to_dot_source(target, max_depth=max_depth)
+    source = to_dot_source(
+        target,
+        max_depth=max_depth,
+        registry=registry,
+        ghost_external=ghost_external,
+    )
 
     if output:
         out = Path(output)
@@ -404,6 +417,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--keep-dot", action="store_true",
         help="Keep intermediate .dot source files alongside rendered output.",
     )
+    p_render.add_argument(
+        "--ghost-external", action="store_true",
+        help="Render cross-graph deps that point outside the current view as "
+             "dashed ghost nodes rather than silently dropping the edge.",
+    )
     p_render.set_defaults(func=cmd_render)
 
     # -- dot ------------------------------------------------------------------
@@ -431,6 +449,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_dot.add_argument(
         "--depth", type=int, default=None, metavar="N",
         help="Max depth before collapsing subgraphs (default: unlimited)",
+    )
+    p_dot.add_argument(
+        "--ghost-external", action="store_true",
+        help="Render cross-graph deps that point outside the current view as "
+             "dashed ghost nodes rather than silently dropping the edge.",
     )
     p_dot.set_defaults(func=cmd_dot)
 

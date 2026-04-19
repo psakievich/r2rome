@@ -13,6 +13,9 @@ Mini-language (one mutation per line):
   name "note text"     set note
   parent::child        create child node inside parent's subgraph
   parent::child active set status on a subgraph node
+  parent::             dive into parent's subgraph (prompt changes)
+  ::                   go up one level
+  :::                  return to root
 
 Tab completes node names (and :: paths) on all entries.
 Empty line, ``q``, or Ctrl-D exits and saves.
@@ -78,6 +81,7 @@ _DEP_RE     = re.compile(r'^(\S+)\s+->\s+(\S+)$')
 _BLOCKS_RE  = re.compile(r'^(\S+)\s+-\|\s+(\S+)$')
 _NOTE_RE    = re.compile(r'^(\S+)\s+"(.+)"$')
 _TOUCH_RE   = re.compile(r'^([\w:]+)$')
+_CONTEXT_RE = re.compile(r'^([\w]+(?:::[\w]+)*)::$')  # "epic::" or "a::b::" to dive in
 
 
 def parse_line(line: str) -> Optional[Mutation]:
@@ -248,6 +252,46 @@ def apply_mutation(data: CommentedMap, mutation: Mutation) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Context helpers
+# ---------------------------------------------------------------------------
+
+def _apply_context(mutation: Mutation, context: str) -> Mutation:
+    """Prefix the mutation's subject name with *context* if it's a bare name.
+
+    Names that already contain '::' are left unchanged — the user typed an
+    explicit path and knows what they want.
+    """
+    def _prefix(name: str) -> str:
+        return name if "::" in name else f"{context}::{name}"
+
+    if isinstance(mutation, TouchNode):
+        return TouchNode(_prefix(mutation.name))
+    if isinstance(mutation, SetLabel):
+        return SetLabel(_prefix(mutation.name), mutation.label)
+    if isinstance(mutation, SetStatus):
+        return SetStatus(_prefix(mutation.name), mutation.status)
+    if isinstance(mutation, AddDep):
+        return AddDep(_prefix(mutation.name), mutation.dep)
+    if isinstance(mutation, AddBlocks):
+        return AddBlocks(_prefix(mutation.name), mutation.blocked)
+    if isinstance(mutation, SetNote):
+        return SetNote(_prefix(mutation.name), mutation.note)
+    return mutation
+
+
+def _context_completions(data: CommentedMap, context: str) -> List[str]:
+    """When inside a subgraph context, offer relative names for that subgraph
+    plus all absolute paths so the user can still reference other nodes."""
+    all_names = _build_completions(data)
+    if not context:
+        return all_names
+    prefix = context + "::"
+    relative = [n[len(prefix):] for n in all_names if n.startswith(prefix)]
+    absolute = [n for n in all_names if not n.startswith(prefix)]
+    return sorted(set(relative + absolute))
+
+
+# ---------------------------------------------------------------------------
 # Readline completion
 # ---------------------------------------------------------------------------
 
@@ -311,6 +355,12 @@ Syntax:
   name "note"       set note
   parent::child     create child node inside parent's subgraph
 
+Context navigation:
+  parent::          dive into parent's subgraph (prompt becomes parent::>)
+  sub::             nest deeper (prompt becomes parent::sub::>)
+  ::                go up one level
+  :::               return to root
+
 Tab completes node names and :: paths. Empty line or ^D to save and quit.\
 """
 
@@ -329,7 +379,8 @@ def run_scratch(path: Path) -> int:
     nodes_list = data.get("nodes") or []
     n_nodes = len(nodes_list)
 
-    completions = _build_completions(data)
+    context = ""
+    completions = _context_completions(data, context)
     _install_completer(completions)
 
     title = data.get("title") or data.get("name") or path.name
@@ -338,8 +389,9 @@ def run_scratch(path: Path) -> int:
     print(_HELP)
 
     while True:
+        prompt = f"{context}::> " if context else "> "
         try:
-            line = input("> ").strip()
+            line = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
@@ -352,17 +404,42 @@ def run_scratch(path: Path) -> int:
             print(_HELP)
             continue
 
+        # Context navigation: "name::" = dive, "::" = up one level, ":::" = root
+        is_ctx_nav = False
+        if line == ":::":
+            context = ""
+            is_ctx_nav = True
+        elif line == "::":
+            context = context.rsplit("::", 1)[0] if "::" in context else ""
+            is_ctx_nav = True
+        else:
+            m = _CONTEXT_RE.match(line)
+            if m:
+                context = m.group(1)
+                is_ctx_nav = True
+
+        if is_ctx_nav:
+            label = f"'{context}::'" if context else "root"
+            print(f"  [context] {label}")
+            completions.clear()
+            completions.extend(_context_completions(data, context))
+            _install_completer(completions)
+            continue
+
         mutation = parse_line(line)
         if mutation is None:
             print(f"  ? unrecognised: {line!r}")
             continue
+
+        if context:
+            mutation = _apply_context(mutation, context)
 
         msg = apply_mutation(data, mutation)
         _save_raw(y, data, path)
 
         # Refresh completions after each write
         completions.clear()
-        completions.extend(_build_completions(data))
+        completions.extend(_context_completions(data, context))
         _install_completer(completions)
 
         print(f"  {msg}")

@@ -13,7 +13,10 @@ from r2rome.scratch import (
     SetNote,
     SetStatus,
     TouchNode,
+    _CONTEXT_RE,
+    _apply_context,
     _build_completions,
+    _context_completions,
     apply_mutation,
     parse_line,
 )
@@ -284,3 +287,102 @@ class TestBuildCompletions:
         data = _data("name: root\nnodes:\n  - name: b\n  - name: a\n")
         completions = _build_completions(data)
         assert completions == sorted(set(completions))
+
+
+# ---------------------------------------------------------------------------
+# Context switch (_CONTEXT_RE, _apply_context, _context_completions)
+# ---------------------------------------------------------------------------
+
+class TestContextRegex:
+    def test_simple_dive(self):
+        m = _CONTEXT_RE.match("epic_two::")
+        assert m and m.group(1) == "epic_two"
+
+    def test_nested_dive(self):
+        m = _CONTEXT_RE.match("epic::sub::")
+        assert m and m.group(1) == "epic::sub"
+
+    def test_double_colon_does_not_match(self):
+        # "::" is handled as "go up" directly in run_scratch, not via regex
+        assert _CONTEXT_RE.match("::") is None
+
+    def test_triple_colon_does_not_match(self):
+        # ":::" is handled as "reset to root" directly in run_scratch
+        assert _CONTEXT_RE.match(":::") is None
+
+    def test_bare_name_does_not_match(self):
+        assert _CONTEXT_RE.match("epic_two") is None
+
+    def test_full_path_does_not_match(self):
+        assert _CONTEXT_RE.match("epic::task_a") is None
+
+
+class TestApplyContext:
+    def test_bare_name_prefixed(self):
+        mut = _apply_context(TouchNode("task_a"), "epic")
+        assert mut == TouchNode("epic::task_a")
+
+    def test_name_with_colons_unchanged(self):
+        mut = _apply_context(TouchNode("other::task"), "epic")
+        assert mut == TouchNode("other::task")
+
+    def test_set_label_prefixes_name(self):
+        mut = _apply_context(SetLabel("task_a", "Task A"), "epic")
+        assert mut == SetLabel("epic::task_a", "Task A")
+
+    def test_set_status_prefixes_name(self):
+        mut = _apply_context(SetStatus("task_a", "active"), "epic")
+        assert mut == SetStatus("epic::task_a", "active")
+
+    def test_add_dep_prefixes_subject_not_target(self):
+        mut = _apply_context(AddDep("task_a", "task_b"), "epic")
+        assert mut == AddDep("epic::task_a", "task_b")
+
+    def test_add_dep_explicit_target_unchanged(self):
+        mut = _apply_context(AddDep("task_a", "other::dep"), "epic")
+        assert mut == AddDep("epic::task_a", "other::dep")
+
+    def test_add_blocks_prefixes_subject_not_target(self):
+        mut = _apply_context(AddBlocks("task_a", "task_b"), "epic")
+        assert mut == AddBlocks("epic::task_a", "task_b")
+
+    def test_set_note_prefixes_name(self):
+        mut = _apply_context(SetNote("task_a", "some note"), "epic")
+        assert mut == SetNote("epic::task_a", "some note")
+
+
+class TestContextCompletions:
+    def _data_with_subgraph(self):
+        return _data(
+            "name: root\nnodes:\n"
+            "  - name: epic\n"
+            "    graph:\n"
+            "      nodes:\n"
+            "        - name: task_a\n"
+            "        - name: task_b\n"
+            "  - name: other\n"
+        )
+
+    def test_root_context_returns_all(self):
+        data = self._data_with_subgraph()
+        completions = _context_completions(data, "")
+        assert "epic" in completions
+        assert "epic::task_a" in completions
+        assert "other" in completions
+
+    def test_in_context_shows_relative_names(self):
+        data = self._data_with_subgraph()
+        completions = _context_completions(data, "epic")
+        assert "task_a" in completions
+        assert "task_b" in completions
+
+    def test_in_context_shows_other_absolute_nodes(self):
+        data = self._data_with_subgraph()
+        completions = _context_completions(data, "epic")
+        assert "other" in completions
+
+    def test_in_context_drops_absolute_prefix_paths(self):
+        data = self._data_with_subgraph()
+        completions = _context_completions(data, "epic")
+        # epic::task_a should appear as "task_a" (relative), not "epic::task_a"
+        assert "epic::task_a" not in completions

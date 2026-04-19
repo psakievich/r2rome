@@ -13,6 +13,7 @@ from r2rome.scratch import (
     SetNote,
     SetStatus,
     TouchNode,
+    _build_completions,
     apply_mutation,
     parse_line,
 )
@@ -175,3 +176,111 @@ class TestApplyMutation:
         assert "keep this comment" in result
         assert "status: done" in result
         assert "b" in result
+
+
+# ---------------------------------------------------------------------------
+# Subgraph :: path mutations
+# ---------------------------------------------------------------------------
+
+class TestSubgraphMutations:
+    def test_touch_creates_child_in_subgraph(self):
+        data = _empty()
+        apply_mutation(data, TouchNode("epic::task_a"))
+        epic = next(n for n in data["nodes"] if hasattr(n, "get") and n.get("name") == "epic")
+        assert "graph" in epic
+        child_names = [
+            n if isinstance(n, str) else n.get("name")
+            for n in epic["graph"]["nodes"]
+        ]
+        assert "task_a" in child_names
+
+    def test_set_status_in_subgraph(self):
+        data = _empty()
+        apply_mutation(data, TouchNode("epic::task_a"))
+        apply_mutation(data, SetStatus("epic::task_a", "active"))
+        epic = next(n for n in data["nodes"] if hasattr(n, "get") and n.get("name") == "epic")
+        task = next(n for n in epic["graph"]["nodes"] if hasattr(n, "get") and n.get("name") == "task_a")
+        assert task["status"] == "active"
+
+    def test_set_label_in_subgraph(self):
+        data = _empty()
+        apply_mutation(data, SetLabel("epic::task_a", "Task A"))
+        epic = next(n for n in data["nodes"] if hasattr(n, "get") and n.get("name") == "epic")
+        task = next(n for n in epic["graph"]["nodes"] if hasattr(n, "get") and n.get("name") == "task_a")
+        assert task["label"] == "Task A"
+
+    def test_add_dep_in_subgraph(self):
+        data = _empty()
+        apply_mutation(data, TouchNode("epic::task_a"))
+        apply_mutation(data, AddDep("epic::task_a", "epic::task_b"))
+        epic = next(n for n in data["nodes"] if hasattr(n, "get") and n.get("name") == "epic")
+        task = next(n for n in epic["graph"]["nodes"] if hasattr(n, "get") and n.get("name") == "task_a")
+        assert "epic::task_b" in task["deps"]
+
+    def test_promotes_existing_node_to_parent(self):
+        """Touching parent::child auto-creates parent node if absent."""
+        data = _empty()
+        msg = apply_mutation(data, TouchNode("new_epic::subtask"))
+        assert "created" in msg
+        names = [
+            n if isinstance(n, str) else n.get("name")
+            for n in data["nodes"]
+        ]
+        assert "new_epic" in names
+
+    def test_deep_path_three_levels(self):
+        data = _empty()
+        apply_mutation(data, TouchNode("epic::sub::leaf"))
+        epic = next(n for n in data["nodes"] if hasattr(n, "get") and n.get("name") == "epic")
+        sub = next(n for n in epic["graph"]["nodes"] if hasattr(n, "get") and n.get("name") == "sub")
+        leaf_names = [
+            n if isinstance(n, str) else n.get("name")
+            for n in sub["graph"]["nodes"]
+        ]
+        assert "leaf" in leaf_names
+
+    def test_touch_existing_subgraph_node_no_duplicate(self):
+        data = _empty()
+        apply_mutation(data, TouchNode("epic::task_a"))
+        apply_mutation(data, TouchNode("epic::task_a"))
+        epic = next(n for n in data["nodes"] if hasattr(n, "get") and n.get("name") == "epic")
+        names = [
+            n if isinstance(n, str) else n.get("name")
+            for n in epic["graph"]["nodes"]
+        ]
+        assert names.count("task_a") == 1
+
+
+# ---------------------------------------------------------------------------
+# Completion builder
+# ---------------------------------------------------------------------------
+
+class TestBuildCompletions:
+    def test_top_level_nodes_included(self):
+        data = _data("name: root\nnodes:\n  - name: auth\n  - name: api\n")
+        completions = _build_completions(data)
+        assert "auth" in completions
+        assert "api" in completions
+
+    def test_subgraph_nodes_included_with_path(self):
+        data = _data(
+            "name: root\nnodes:\n"
+            "  - name: epic\n"
+            "    graph:\n"
+            "      nodes:\n"
+            "        - name: task_a\n"
+        )
+        completions = _build_completions(data)
+        assert "epic" in completions
+        assert "epic::task_a" in completions
+
+    def test_string_shorthand_nodes_included(self):
+        data = _data("name: root\nnodes: [alpha, beta]\n")
+        completions = _build_completions(data)
+        assert "alpha" in completions
+        assert "beta" in completions
+
+    def test_completions_are_sorted_and_unique(self):
+        data = _data("name: root\nnodes:\n  - name: b\n  - name: a\n")
+        completions = _build_completions(data)
+        assert completions == sorted(set(completions))

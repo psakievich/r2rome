@@ -11,25 +11,25 @@ Mini-language (one mutation per line):
   name -> dep          add dep edge
   name -| blocked      add blocks edge
   name "note text"     set note
-  name ::path::node    create node with a cross-graph dep in one step
+  parent::child        create child node inside parent's subgraph
+  parent::child active set status on a subgraph node
 
-Tab completes node names (and :: paths) on dep / blocks entries.
+Tab completes node names (and :: paths) on all entries.
 Empty line, ``q``, or Ctrl-D exits and saves.
 """
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
-from r2rome.model import VALID_STATUSES, build_node_registry, load
+from r2rome.model import VALID_STATUSES
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +170,30 @@ def _ensure_node(data: CommentedMap, name: str) -> Tuple[CommentedMap, bool]:
     return new_node, True
 
 
+def _ensure_nested_node(data: CommentedMap, path: str) -> Tuple[CommentedMap, bool]:
+    """Navigate a :: path and return (node_dict, created).
+
+    'epic::task_b' finds 'epic' in data's nodes, ensures it has a graph block,
+    then finds or creates 'task_b' in that graph's nodes list.
+    Non-path names (no '::') delegate directly to _ensure_node.
+    """
+    parts = [p for p in path.split("::") if p]
+    if len(parts) == 1:
+        return _ensure_node(data, parts[0])
+
+    current_data = data
+    for part in parts[:-1]:
+        parent_node, _ = _ensure_node(current_data, part)
+        if "graph" not in parent_node or parent_node["graph"] is None:
+            parent_node["graph"] = CommentedMap()
+        graph_block = parent_node["graph"]
+        if "nodes" not in graph_block or graph_block["nodes"] is None:
+            graph_block["nodes"] = CommentedSeq()
+        current_data = graph_block
+
+    return _ensure_node(current_data, parts[-1])
+
+
 def _list_field(node: CommentedMap, field: str) -> CommentedSeq:
     if field not in node or node[field] is None:
         node[field] = CommentedSeq()
@@ -186,21 +210,21 @@ def apply_mutation(data: CommentedMap, mutation: Mutation) -> str:
     """Apply *mutation* to *data* in place. Returns a human-readable confirmation."""
 
     if isinstance(mutation, TouchNode):
-        _, created = _ensure_node(data, mutation.name)
+        _, created = _ensure_nested_node(data, mutation.name)
         return f"created '{mutation.name}'" if created else f"'{mutation.name}' already exists"
 
     if isinstance(mutation, SetLabel):
-        node, _ = _ensure_node(data, mutation.name)
+        node, _ = _ensure_nested_node(data, mutation.name)
         node["label"] = mutation.label
         return f"'{mutation.name}' label -> {mutation.label!r}"
 
     if isinstance(mutation, SetStatus):
-        node, _ = _ensure_node(data, mutation.name)
+        node, _ = _ensure_nested_node(data, mutation.name)
         node["status"] = mutation.status
         return f"'{mutation.name}' status -> {mutation.status}"
 
     if isinstance(mutation, AddDep):
-        node, _ = _ensure_node(data, mutation.name)
+        node, _ = _ensure_nested_node(data, mutation.name)
         deps = _list_field(node, "deps")
         if mutation.dep not in deps:
             deps.append(mutation.dep)
@@ -208,7 +232,7 @@ def apply_mutation(data: CommentedMap, mutation: Mutation) -> str:
         return f"'{mutation.name}' already depends on '{mutation.dep}'"
 
     if isinstance(mutation, AddBlocks):
-        node, _ = _ensure_node(data, mutation.name)
+        node, _ = _ensure_nested_node(data, mutation.name)
         blocks = _list_field(node, "blocks")
         if mutation.blocked not in blocks:
             blocks.append(mutation.blocked)
@@ -216,7 +240,7 @@ def apply_mutation(data: CommentedMap, mutation: Mutation) -> str:
         return f"'{mutation.name}' already blocks '{mutation.blocked}'"
 
     if isinstance(mutation, SetNote):
-        node, _ = _ensure_node(data, mutation.name)
+        node, _ = _ensure_nested_node(data, mutation.name)
         node["note"] = mutation.note
         return f"'{mutation.name}' note set"
 
@@ -227,30 +251,30 @@ def apply_mutation(data: CommentedMap, mutation: Mutation) -> str:
 # Readline completion
 # ---------------------------------------------------------------------------
 
-def _build_completions(data: CommentedMap) -> List[str]:
-    """Collect node short-names and :: paths for tab completion."""
-    try:
-        graph = load.__wrapped__(data) if hasattr(load, "__wrapped__") else None
-    except Exception:
-        graph = None
-
-    names: List[str] = []
+def _collect_completions(data: CommentedMap, names: List[str], prefix: str = "") -> None:
+    """Recursively collect node names (and :: paths for subgraph nodes)."""
     nodes = data.get("nodes") or []
     for entry in nodes:
         if isinstance(entry, str):
-            names.append(entry)
+            short: Optional[str] = entry
         elif isinstance(entry, CommentedMap):
-            n = entry.get("name")
-            if n:
-                names.append(str(n))
+            short = entry.get("name")
+        else:
+            continue
+        if not short:
+            continue
+        full = f"{prefix}{short}" if prefix else short
+        names.append(full)
+        if isinstance(entry, CommentedMap):
+            graph_block = entry.get("graph")
+            if graph_block and isinstance(graph_block, CommentedMap):
+                _collect_completions(graph_block, names, prefix=f"{full}::")
 
-    if graph is not None:
-        try:
-            reg = build_node_registry(graph)
-            names.extend(reg.keys())
-        except Exception:
-            pass
 
+def _build_completions(data: CommentedMap) -> List[str]:
+    """Collect node short-names and :: paths for tab completion."""
+    names: List[str] = []
+    _collect_completions(data, names)
     return sorted(set(names))
 
 
@@ -264,11 +288,13 @@ def _install_completer(completions: List[str]) -> None:
 
         readline.set_completer(completer)
         readline.set_completer_delims(" \t")
-        readline.parse_and_bind(
-            "bind ^I rl_complete" if sys.platform == "darwin" else "tab: complete"
-        )
-    except ImportError:
-        pass  # readline not available (Windows) — degrade silently
+        # libedit (macOS system Python) uses different binding syntax from GNU readline
+        if "libedit" in getattr(readline, "__doc__", ""):
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+    except Exception:
+        pass  # degrade silently (Windows, broken readline, etc.)
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +309,9 @@ Syntax:
   name -> dep       add dep edge
   name -| blocked   add blocks edge
   name "note"       set note
+  parent::child     create child node inside parent's subgraph
 
-Tab completes node names. Empty line or ^D to save and quit.\
+Tab completes node names and :: paths. Empty line or ^D to save and quit.\
 """
 
 _EXIT_WORDS = {"q", "quit", "exit", ":q"}

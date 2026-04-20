@@ -2,7 +2,6 @@
 Tests for r2rome.scratch — line parser and YAML mutations.
 """
 
-import pytest
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
@@ -162,8 +161,6 @@ class TestApplyMutation:
 
     def test_round_trip_preserves_existing_content(self, tmp_path):
         """Saving after a mutation doesn't corrupt unrelated YAML content."""
-        from io import StringIO
-        from ruamel.yaml import YAML as RY
         from r2rome.scratch import _load_raw, _save_raw
 
         src = tmp_path / "proj.yaml"

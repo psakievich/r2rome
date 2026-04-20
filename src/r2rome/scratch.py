@@ -27,7 +27,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
@@ -68,7 +68,7 @@ class SetNote:
     name: str
     note: str
 
-Mutation = TouchNode | SetLabel | SetStatus | AddDep | AddBlocks | SetNote
+Mutation = Union[TouchNode, SetLabel, SetStatus, AddDep, AddBlocks, SetNote]
 
 
 # ---------------------------------------------------------------------------

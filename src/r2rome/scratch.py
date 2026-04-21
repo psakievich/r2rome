@@ -84,7 +84,8 @@ _DEP_RE     = re.compile(r'^(\S+)\s+->\s+(\S+)$')
 _BLOCKS_RE  = re.compile(r'^(\S+)\s+-\|\s+(\S+)$')
 _NOTE_RE    = re.compile(r'^(\S+)\s+"(.+)"$')
 _TOUCH_RE   = re.compile(r'^([\w:]+)$')
-_CONTEXT_RE = re.compile(r'^([\w]+(?:::[\w]+)*)::$')  # "epic::" or "a::b::" to dive in
+_CONTEXT_RE   = re.compile(r'^([\w]+(?:::[\w]+)*)::$')  # "epic::" or "a::b::" to dive in
+_VALID_PATH_RE = re.compile(r'^[\w]+(?:::[\w]+)*$')    # valid :: path: no spaces, no leading ::
 
 
 def parse_line(line: str) -> Optional[Mutation]:
@@ -184,6 +185,8 @@ def _ensure_nested_node(data: CommentedMap, path: str) -> Tuple[CommentedMap, bo
     then finds or creates 'task_b' in that graph's nodes list.
     Non-path names (no '::') delegate directly to _ensure_node.
     """
+    if path.startswith(":::"):  # defensive: callers should pre-resolve, but strip sigil if not
+        path = path[3:]
     parts = [p for p in path.split("::") if p]
     if len(parts) == 1:
         return _ensure_node(data, parts[0])
@@ -452,7 +455,7 @@ def run_scratch(path: Path) -> int:
     n_nodes = len(nodes_list)
 
     context = ""
-    context_ref = [context]
+    context_ref = [context]  # single-element mutable list: closure-shared state for live completer
     _install_live_completer(data, context_ref)
 
     title = data.get("title") or data.get("name") or path.name
@@ -489,13 +492,20 @@ def run_scratch(path: Path) -> int:
             is_ctx_nav = True
         elif line.startswith(":::") and line.endswith("::") and line[3:-2]:
             # Absolute dive: :::foo:: or :::foo::bar::
-            context = line[3:-2]
+            seg = line[3:-2]
+            if not _VALID_PATH_RE.match(seg):
+                print(f"  ? invalid path: {seg!r}")
+                continue
+            context = seg
             is_ctx_nav = True
         elif line.startswith("::") and line.endswith("::") and line[2:-2]:
             # One-level-up dive: ::baz:: or ::foo::bar::
-            path_seg = line[2:-2]
+            seg = line[2:-2]
+            if not _VALID_PATH_RE.match(seg):
+                print(f"  ? invalid path: {seg!r}")
+                continue
             parent = context.rsplit("::", 1)[0] if "::" in context else ""
-            context = f"{parent}::{path_seg}" if parent else path_seg
+            context = f"{parent}::{seg}" if parent else seg
             is_ctx_nav = True
         else:
             m = _CONTEXT_RE.match(line)

@@ -50,7 +50,7 @@ class _CrossCtx:
     renderable:    Set[str]                    # short names present in this DOT scope
     all_clusters:  Set[str]                    # short names rendered as clusters
     deferred:      List[Tuple[str, str, str]]  # (src, tgt, "dep"|"blocks")
-    ghost_nodes:   Dict[str, str]              # ghost_dot_id → display label
+    ghost_nodes:   Dict[str, GraphNode]         # ghost_dot_id → original node
     ghost_edges:   List[Tuple[str, str, str]]  # (src, ghost_dot_id, "dep"|"blocks")
     ghost_external: bool
     theme:         Dict[str, Any]
@@ -230,8 +230,7 @@ def _add_edges(
             cross_ctx.deferred.append((node.name, tgt_short, kind))
         elif cross_ctx.ghost_external:
             ghost_id = _ghost_dot_id(_full_path)
-            ghost_label = _full_path.split("::")[-1]
-            cross_ctx.ghost_nodes[ghost_id] = ghost_label
+            cross_ctx.ghost_nodes[ghost_id] = _tgt_node  # store full node
             cross_ctx.ghost_edges.append((node.name, ghost_id, kind))
         else:
             warnings.warn(
@@ -511,20 +510,19 @@ def _emit_ghosts_and_deferred(dot: Digraph, ctx: _CrossCtx) -> None:
     """Emit ghost nodes and all deferred cross-graph edges into the root Digraph."""
     theme = ctx.theme
 
-    # Ghost node style — muted dashed box, theme-aware
-    ghost_attr: Dict[str, str] = {
-        "style":     "dashed,filled",
-        "fillcolor": theme["graph_attr"]["bgcolor"],
-        "color":     theme["edge_attr"]["color"],
-        "fontcolor": theme["edge_attr"]["fontcolor"],
-        "fontname":  theme["node_attr"]["fontname"],
-        "fontsize":  theme["node_attr"].get("fontsize", "10"),
-        "shape":     "box",
-    }
-
-    for ghost_id, label in ctx.ghost_nodes.items():
-        full_path = ghost_id.replace("__ghost__", "").replace("__", "::")
-        dot.node(ghost_id, label=label, tooltip=full_path, **ghost_attr)
+    for ghost_id, orig_node in ctx.ghost_nodes.items():
+        full_path = ghost_id[len("__ghost__"):].replace("__", "::")
+        # Start from the original node's full attributes (label, status colour, shape…)
+        attrs: Dict[str, str] = {
+            **theme["node_attr"],
+            **orig_node.effective_dot_attrs(theme["status_style"]),
+        }
+        # Ghost overrides: dashed border retains status colour; fill goes to background
+        attrs["style"] = "dashed,filled"
+        attrs["fillcolor"] = theme["graph_attr"]["bgcolor"]
+        # Tooltip: prefer the node's own note, fall back to full path
+        attrs["tooltip"] = orig_node.note if orig_node.note else full_path
+        dot.node(ghost_id, label=orig_node.label or orig_node.name, **attrs)
 
     for src, ghost_id, kind in ctx.ghost_edges:
         if kind == "blocks":

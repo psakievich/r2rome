@@ -197,6 +197,24 @@ class TestCrossGraphEdges:
         src = build_digraph(alpha, registry=reg, ghost_external=True).source
         assert "__ghost__" in src
 
+    def test_ghost_node_carries_original_label_and_status(self):
+        """Ghost nodes render with the target node's label and status colour,
+        not just its short name."""
+        root = Graph.from_dict({
+            "name": "root",
+            "graphs": [
+                {"name": "alpha", "nodes": [{"name": "x", "deps": ["root::beta::z"]}]},
+                {"name": "beta",  "nodes": [{"name": "z", "label": "Zone Z", "status": "blocked"}]},
+            ],
+        })
+        reg = build_node_registry(root)
+        alpha = root.subgraphs[0]
+        src = build_digraph(alpha, registry=reg, ghost_external=True).source
+        # The ghost should carry the original label, not just "z"
+        assert "Zone Z" in src
+        # dashed style present (ghost marker)
+        assert "dashed" in src
+
     def test_no_ghost_when_ghost_external_false(self):
         root = Graph.from_dict({
             "name": "root",

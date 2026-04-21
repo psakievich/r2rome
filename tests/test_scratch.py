@@ -15,7 +15,8 @@ from r2rome.scratch import (
     _CONTEXT_RE,
     _apply_context,
     _build_completions,
-    _context_completions,
+    _compute_completions,
+    _resolve_relative,
     apply_mutation,
     parse_line,
 )
@@ -314,14 +315,54 @@ class TestContextRegex:
         assert _CONTEXT_RE.match("epic::task_a") is None
 
 
+class TestResolveRelative:
+    def test_bare_name_prefixed(self):
+        assert _resolve_relative("task_a", "epic") == "epic::task_a"
+
+    def test_sub_path_relative(self):
+        assert _resolve_relative("baz::doe", "foo::bar") == "foo::bar::baz::doe"
+
+    def test_leading_colons_up_one_level(self):
+        assert _resolve_relative("::sibling", "foo::bar::baz") == "foo::bar::sibling"
+
+    def test_leading_colons_up_with_sub_path(self):
+        assert _resolve_relative("::sib::child", "foo::bar::baz") == "foo::bar::sib::child"
+
+    def test_leading_colons_from_single_level(self):
+        assert _resolve_relative("::other", "epic") == "other"
+
+    def test_triple_colon_absolute_in_context(self):
+        assert _resolve_relative(":::foo::bar", "epic::sub") == "foo::bar"
+
+    def test_triple_colon_absolute_at_root(self):
+        assert _resolve_relative(":::foo::bar", "") == "foo::bar"
+
+    def test_at_root_bare_name_unchanged(self):
+        assert _resolve_relative("task_a", "") == "task_a"
+
+    def test_at_root_leading_colons_stripped(self):
+        assert _resolve_relative("::node", "") == "node"
+
+    def test_at_root_sub_path_unchanged(self):
+        assert _resolve_relative("foo::bar", "") == "foo::bar"
+
+
 class TestApplyContext:
     def test_bare_name_prefixed(self):
         mut = _apply_context(TouchNode("task_a"), "epic")
         assert mut == TouchNode("epic::task_a")
 
-    def test_name_with_colons_unchanged(self):
-        mut = _apply_context(TouchNode("other::task"), "epic")
-        assert mut == TouchNode("other::task")
+    def test_relative_sub_path_prefixed(self):
+        mut = _apply_context(TouchNode("baz::doe"), "foo::bar")
+        assert mut == TouchNode("foo::bar::baz::doe")
+
+    def test_leading_colons_goes_up_one_level(self):
+        mut = _apply_context(TouchNode("::sibling"), "foo::bar::baz")
+        assert mut == TouchNode("foo::bar::sibling")
+
+    def test_triple_colon_absolute(self):
+        mut = _apply_context(TouchNode(":::root_node"), "foo::bar")
+        assert mut == TouchNode("root_node")
 
     def test_set_label_prefixes_name(self):
         mut = _apply_context(SetLabel("task_a", "Task A"), "epic")
@@ -331,15 +372,23 @@ class TestApplyContext:
         mut = _apply_context(SetStatus("task_a", "active"), "epic")
         assert mut == SetStatus("epic::task_a", "active")
 
-    def test_add_dep_prefixes_subject_not_target(self):
+    def test_add_dep_bare_target_stays_local(self):
         mut = _apply_context(AddDep("task_a", "task_b"), "epic")
         assert mut == AddDep("epic::task_a", "task_b")
 
-    def test_add_dep_explicit_target_unchanged(self):
-        mut = _apply_context(AddDep("task_a", "other::dep"), "epic")
-        assert mut == AddDep("epic::task_a", "other::dep")
+    def test_add_dep_path_target_resolved_relative(self):
+        mut = _apply_context(AddDep("task_a", "baz::doe"), "foo::bar")
+        assert mut == AddDep("foo::bar::task_a", "foo::bar::baz::doe")
 
-    def test_add_blocks_prefixes_subject_not_target(self):
+    def test_add_dep_absolute_target(self):
+        mut = _apply_context(AddDep("task_a", ":::other::dep"), "foo::bar")
+        assert mut == AddDep("foo::bar::task_a", "other::dep")
+
+    def test_add_dep_leading_colon_target(self):
+        mut = _apply_context(AddDep("task_a", "::other"), "foo::bar::baz")
+        assert mut == AddDep("foo::bar::baz::task_a", "foo::bar::other")
+
+    def test_add_blocks_bare_target_stays_local(self):
         mut = _apply_context(AddBlocks("task_a", "task_b"), "epic")
         assert mut == AddBlocks("epic::task_a", "task_b")
 
@@ -348,8 +397,8 @@ class TestApplyContext:
         assert mut == SetNote("epic::task_a", "some note")
 
 
-class TestContextCompletions:
-    def _data_with_subgraph(self):
+class TestComputeCompletions:
+    def _data(self):
         return _data(
             "name: root\nnodes:\n"
             "  - name: epic\n"
@@ -360,26 +409,48 @@ class TestContextCompletions:
             "  - name: other\n"
         )
 
-    def test_root_context_returns_all(self):
-        data = self._data_with_subgraph()
-        completions = _context_completions(data, "")
-        assert "epic" in completions
-        assert "epic::task_a" in completions
-        assert "other" in completions
+    def test_root_context_bare_text_returns_all(self):
+        d = self._data()
+        c = _compute_completions("", "", d)
+        assert "epic" in c
+        assert "epic::task_a" in c
+        assert "other" in c
 
-    def test_in_context_shows_relative_names(self):
-        data = self._data_with_subgraph()
-        completions = _context_completions(data, "epic")
-        assert "task_a" in completions
-        assert "task_b" in completions
+    def test_in_context_bare_text_shows_relative_only(self):
+        d = self._data()
+        c = _compute_completions("", "epic", d)
+        assert "task_a" in c
+        assert "task_b" in c
+        # other nodes NOT shown by default in context
+        assert "other" not in c
+        assert "epic" not in c
 
-    def test_in_context_shows_other_absolute_nodes(self):
-        data = self._data_with_subgraph()
-        completions = _context_completions(data, "epic")
-        assert "other" in completions
+    def test_in_context_double_colon_shows_parent_level(self):
+        d = self._data()
+        c = _compute_completions("::", "epic", d)
+        # parent of "epic" is root — root nodes with :: prefix
+        assert "::epic" in c
+        assert "::other" in c
 
-    def test_in_context_drops_absolute_prefix_paths(self):
-        data = self._data_with_subgraph()
-        completions = _context_completions(data, "epic")
-        # epic::task_a should appear as "task_a" (relative), not "epic::task_a"
-        assert "epic::task_a" not in completions
+    def test_in_context_double_colon_prefix_filtered(self):
+        d = self._data()
+        c = _compute_completions("::e", "epic", d)
+        assert "::epic" in c
+        assert "::other" not in c
+
+    def test_in_context_triple_colon_shows_absolute_paths(self):
+        d = self._data()
+        c = _compute_completions(":::", "epic", d)
+        assert ":::epic" in c
+        assert ":::other" in c
+        assert ":::epic::task_a" in c
+
+    def test_in_nested_context_double_colon_shows_grandparent_children(self):
+        d = self._data()
+        # inside epic::task_a, :: shows siblings (epic's children)
+        c = _compute_completions("::", "epic::task_a", d)
+        # parent of epic::task_a is epic — so children of epic
+        assert "::task_a" in c
+        assert "::task_b" in c
+        # epic's parent (root) nodes should NOT appear
+        assert "::other" not in c

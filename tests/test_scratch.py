@@ -16,6 +16,7 @@ from r2rome.scratch import (
     _apply_context,
     _build_completions,
     _context_completions,
+    _resolve_relative,
     apply_mutation,
     parse_line,
 )
@@ -314,14 +315,46 @@ class TestContextRegex:
         assert _CONTEXT_RE.match("epic::task_a") is None
 
 
+class TestResolveRelative:
+    def test_bare_name_prefixed(self):
+        assert _resolve_relative("task_a", "epic") == "epic::task_a"
+
+    def test_sub_path_relative(self):
+        assert _resolve_relative("baz::doe", "foo::bar") == "foo::bar::baz::doe"
+
+    def test_leading_colons_up_one_level(self):
+        assert _resolve_relative("::sibling", "foo::bar::baz") == "foo::bar::sibling"
+
+    def test_leading_colons_up_with_sub_path(self):
+        assert _resolve_relative("::sib::child", "foo::bar::baz") == "foo::bar::sib::child"
+
+    def test_leading_colons_from_single_level(self):
+        # One level deep: "up" is root
+        assert _resolve_relative("::other", "epic") == "other"
+
+    def test_at_root_bare_name_unchanged(self):
+        assert _resolve_relative("task_a", "") == "task_a"
+
+    def test_at_root_leading_colons_stripped(self):
+        assert _resolve_relative("::node", "") == "node"
+
+    def test_at_root_sub_path_unchanged(self):
+        assert _resolve_relative("foo::bar", "") == "foo::bar"
+
+
 class TestApplyContext:
     def test_bare_name_prefixed(self):
         mut = _apply_context(TouchNode("task_a"), "epic")
         assert mut == TouchNode("epic::task_a")
 
-    def test_name_with_colons_unchanged(self):
-        mut = _apply_context(TouchNode("other::task"), "epic")
-        assert mut == TouchNode("other::task")
+    def test_relative_sub_path_prefixed(self):
+        # baz::doe in context foo::bar → foo::bar::baz::doe  (the reported bug)
+        mut = _apply_context(TouchNode("baz::doe"), "foo::bar")
+        assert mut == TouchNode("foo::bar::baz::doe")
+
+    def test_leading_colons_goes_up_one_level(self):
+        mut = _apply_context(TouchNode("::sibling"), "foo::bar::baz")
+        assert mut == TouchNode("foo::bar::sibling")
 
     def test_set_label_prefixes_name(self):
         mut = _apply_context(SetLabel("task_a", "Task A"), "epic")
@@ -331,15 +364,22 @@ class TestApplyContext:
         mut = _apply_context(SetStatus("task_a", "active"), "epic")
         assert mut == SetStatus("epic::task_a", "active")
 
-    def test_add_dep_prefixes_subject_not_target(self):
+    def test_add_dep_bare_target_stays_local(self):
+        # bare dep target = local ref within subgraph, not prefixed
         mut = _apply_context(AddDep("task_a", "task_b"), "epic")
         assert mut == AddDep("epic::task_a", "task_b")
 
-    def test_add_dep_explicit_target_unchanged(self):
-        mut = _apply_context(AddDep("task_a", "other::dep"), "epic")
-        assert mut == AddDep("epic::task_a", "other::dep")
+    def test_add_dep_path_target_resolved_relative(self):
+        # dep target with :: is resolved relative to context
+        mut = _apply_context(AddDep("task_a", "baz::doe"), "foo::bar")
+        assert mut == AddDep("foo::bar::task_a", "foo::bar::baz::doe")
 
-    def test_add_blocks_prefixes_subject_not_target(self):
+    def test_add_dep_leading_colon_target(self):
+        # ::other in dep target means one level up
+        mut = _apply_context(AddDep("task_a", "::other"), "foo::bar::baz")
+        assert mut == AddDep("foo::bar::baz::task_a", "foo::bar::other")
+
+    def test_add_blocks_bare_target_stays_local(self):
         mut = _apply_context(AddBlocks("task_a", "task_b"), "epic")
         assert mut == AddBlocks("epic::task_a", "task_b")
 

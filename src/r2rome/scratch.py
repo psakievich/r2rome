@@ -11,9 +11,9 @@ Mini-language (one mutation per line):
   name -> dep          add dep edge
   name -| blocked      add blocks edge
   name "note text"     set note
-  parent::child        create child node inside parent's subgraph
-  parent::child active set status on a subgraph node
-  parent::             dive into parent's subgraph (prompt changes)
+  parent::child        create child (relative to current context)
+  ::sibling            create node one level up from current context
+  parent::             dive into parent (relative — prompt appends)
   ::                   go up one level
   :::                  return to root
 
@@ -255,27 +255,55 @@ def apply_mutation(data: CommentedMap, mutation: Mutation) -> str:
 # Context helpers
 # ---------------------------------------------------------------------------
 
-def _apply_context(mutation: Mutation, context: str) -> Mutation:
-    """Prefix the mutation's subject name with *context* if it's a bare name.
+def _resolve_relative(name: str, context: str) -> str:
+    """Resolve *name* relative to the current *context* path.
 
-    Names that already contain '::' are left unchanged — the user typed an
-    explicit path and knows what they want.
+    Rules (mirrors filesystem relative paths):
+      bare name (no ::)     →  context::name
+      sub::path             →  context::sub::path   (relative sub-path)
+      ::sibling             →  parent::sibling       (up one level, then down)
+      ::sib::child          →  parent::sib::child
+
+    At root (empty context), a leading :: is stripped so the name stays valid.
     """
-    def _prefix(name: str) -> str:
-        return name if "::" in name else f"{context}::{name}"
+    if not context:
+        return name[2:] if name.startswith("::") else name
+
+    if name.startswith("::"):
+        rest = name[2:]
+        parent = context.rsplit("::", 1)[0] if "::" in context else ""
+        if not parent:
+            return rest
+        return f"{parent}::{rest}" if rest else parent
+
+    return f"{context}::{name}"
+
+
+def _apply_context(mutation: Mutation, context: str) -> Mutation:
+    """Resolve all names in *mutation* relative to *context*.
+
+    Subject name: always resolved (bare or :: path).
+    Dep/block targets: only resolved when they contain '::' — bare target
+    names are intentionally left as local refs within the subgraph.
+    """
+    def _subj(name: str) -> str:
+        return _resolve_relative(name, context)
+
+    def _tgt(name: str) -> str:
+        return _resolve_relative(name, context) if "::" in name else name
 
     if isinstance(mutation, TouchNode):
-        return TouchNode(_prefix(mutation.name))
+        return TouchNode(_subj(mutation.name))
     if isinstance(mutation, SetLabel):
-        return SetLabel(_prefix(mutation.name), mutation.label)
+        return SetLabel(_subj(mutation.name), mutation.label)
     if isinstance(mutation, SetStatus):
-        return SetStatus(_prefix(mutation.name), mutation.status)
+        return SetStatus(_subj(mutation.name), mutation.status)
     if isinstance(mutation, AddDep):
-        return AddDep(_prefix(mutation.name), mutation.dep)
+        return AddDep(_subj(mutation.name), _tgt(mutation.dep))
     if isinstance(mutation, AddBlocks):
-        return AddBlocks(_prefix(mutation.name), mutation.blocked)
+        return AddBlocks(_subj(mutation.name), _tgt(mutation.blocked))
     if isinstance(mutation, SetNote):
-        return SetNote(_prefix(mutation.name), mutation.note)
+        return SetNote(_subj(mutation.name), mutation.note)
     return mutation
 
 
@@ -353,11 +381,12 @@ Syntax:
   name -> dep       add dep edge
   name -| blocked   add blocks edge
   name "note"       set note
-  parent::child     create child node inside parent's subgraph
+  parent::child     create child node inside parent's subgraph (relative)
+  ::sibling         add sibling one level up from current context
+  ::sib::child      add child under sibling one level up
 
 Context navigation:
-  parent::          dive into parent's subgraph (prompt becomes parent::>)
-  sub::             nest deeper (prompt becomes parent::sub::>)
+  name::            dive into name (relative — appended to current context)
   ::                go up one level
   :::               return to root
 
@@ -415,7 +444,9 @@ def run_scratch(path: Path) -> int:
         else:
             m = _CONTEXT_RE.match(line)
             if m:
-                context = m.group(1)
+                # Always relative: "baz::" inside "foo::bar::" → "foo::bar::baz"
+                segment = m.group(1)
+                context = f"{context}::{segment}" if context else segment
                 is_ctx_nav = True
 
         if is_ctx_nav:

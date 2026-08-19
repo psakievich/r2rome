@@ -6,7 +6,15 @@ import json
 
 import pytest
 
-from r2rome.model import THEMES, Graph, GraphNode, load, _coerce_list, build_node_registry, resolve_cross_ref
+from r2rome.model import (
+    THEMES,
+    Graph,
+    GraphNode,
+    _coerce_list,
+    build_node_registry,
+    load,
+    resolve_cross_ref,
+)
 
 
 class TestGraphNode:

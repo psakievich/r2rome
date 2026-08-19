@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ initial_theme }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,6 +13,14 @@
       --accent: #4af0c4;
       --muted:  #4a5570;
       --text:   #c8d0e0;
+    }
+    :root[data-theme="light"] {
+      --bg:     #f8f9fa;
+      --panel:  #eef0f4;
+      --border: #d8dde6;
+      --accent: #0a9b85;
+      --muted:  #6b7690;
+      --text:   #1a1a2e;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -39,6 +47,18 @@
     nav .crumb a:hover { color: var(--accent); }
     nav .crumb.current { color: var(--text); }
     nav .sep { color: var(--muted); opacity: 0.4; }
+    nav .theme-toggle {
+      margin-left: auto;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 4px 10px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    nav .theme-toggle:hover { color: var(--accent); border-color: var(--accent); }
     .back-bar {
       padding: 8px 20px;
       border-bottom: 1px solid var(--border);
@@ -122,6 +142,7 @@
       <span class="crumb current">{{ crumb.label }}</span>
     {% endif %}
   {% endfor %}
+  <button id="btn-theme-toggle" class="theme-toggle" type="button" title="Toggle background theme">{{ 'light' if initial_theme == 'dark' else 'dark' }}</button>
 </nav>
 
 {% if parent_href %}
@@ -149,6 +170,36 @@
 
 <script>
 (function () {
+  // ── Background theme toggle ──
+  // Only the page chrome and the SVG's own background polygon are re-tinted;
+  // node/edge colors stay exactly as rendered (they carry explicit fills).
+  const CANVAS_BG = {{ canvas_bg_json | safe }};
+  const themeRoot = document.documentElement;
+  const themeToggleBtn = document.getElementById('btn-theme-toggle');
+
+  function applyCanvasBg(theme) {
+    const svgEl = document.querySelector('#svg-container svg');
+    const poly  = svgEl && svgEl.querySelector('polygon');
+    if (poly && CANVAS_BG[theme]) poly.setAttribute('fill', CANVAS_BG[theme]);
+  }
+
+  function setTheme(theme) {
+    themeRoot.setAttribute('data-theme', theme);
+    applyCanvasBg(theme);
+    if (themeToggleBtn) themeToggleBtn.textContent = theme === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('r2rome-theme', theme); } catch (e) { /* storage unavailable */ }
+  }
+
+  let storedTheme = null;
+  try { storedTheme = localStorage.getItem('r2rome-theme'); } catch (e) { /* storage unavailable */ }
+  setTheme(storedTheme || themeRoot.getAttribute('data-theme') || 'dark');
+
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', function () {
+      setTheme(themeRoot.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+  }
+
   const container = document.getElementById('svg-container');
   const svg = container.querySelector('svg');
   if (!svg) return;

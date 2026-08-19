@@ -12,6 +12,7 @@ different stakeholders — from high-level milestones down to individual tasks.
 - **Depth control** — render only N levels deep; deeper nodes become hyperlinked collapsed nodes.
 - **`deps` and `blocks`** — declare edges inline on nodes. `deps` for dependencies, `blocks` for blocking relationships (rendered as dashed red edges).
 - **Offline by default** — generates static SVG + HTML with zero external requests.
+- **Dark/light color schemes** — set `color_scheme` in the YAML or pass `--color-scheme` at render time; rendered HTML pages also include a background toggle button.
 - **CDN mode** (`--cdn`) — interactive pan/zoom viewer using dagre-d3 from cdnjs.
 - **DOT export** — emit raw DOT language for use with any Graphviz tooling.
 - **Graceful degradation** — `r2rome dot` works without the `dot` binary installed.
@@ -52,6 +53,9 @@ r2rome render project.yaml -o out/ --depth 2
 # Interactive CDN viewer (requires network when viewing)
 r2rome render project.yaml -o out/ --cdn
 
+# Render with a specific color scheme, overriding the YAML's color_scheme
+r2rome render project.yaml -o out/ --color-scheme light
+
 # Emit DOT source (no graphviz binary needed)
 r2rome dot project.yaml
 r2rome dot project.yaml --level my_epic
@@ -73,6 +77,7 @@ The rendered output for [`examples/platform-rewrite.yaml`](examples/platform-rew
 ```yaml
 name: root                    # required
 title: My Project             # optional display title
+color_scheme: dark            # optional: dark (default) | light — override with --color-scheme
 
 nodes:
   - name: epic_one            # required, unique identifier

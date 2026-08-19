@@ -129,3 +129,39 @@ class TestGracefulDegradation:
             rc = args.func(args)
 
         assert rc != 0
+
+
+class TestColorSchemeFlag:
+    """--color-scheme lets a common theme name be passed at render/dot time."""
+
+    def test_dot_subcommand_applies_color_scheme(self, simple_yaml_file, capsys):
+        from r2rome.cli import build_parser
+        from r2rome.model import THEMES
+
+        parser = build_parser()
+        args = parser.parse_args(["dot", str(simple_yaml_file), "--color-scheme", "light"])
+        rc = args.func(args)
+
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert THEMES["light"]["graph_attr"]["bgcolor"] in captured.out
+        assert THEMES["dark"]["graph_attr"]["bgcolor"] not in captured.out
+
+    def test_dot_subcommand_default_is_dark(self, simple_yaml_file, capsys):
+        from r2rome.cli import build_parser
+        from r2rome.model import THEMES
+
+        parser = build_parser()
+        args = parser.parse_args(["dot", str(simple_yaml_file)])
+        rc = args.func(args)
+
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert THEMES["dark"]["graph_attr"]["bgcolor"] in captured.out
+
+    def test_dot_subcommand_rejects_unknown_scheme(self, simple_yaml_file):
+        from r2rome.cli import build_parser
+
+        parser = build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["dot", str(simple_yaml_file), "--color-scheme", "solarized"])

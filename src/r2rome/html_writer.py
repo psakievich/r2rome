@@ -23,11 +23,21 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from r2rome.model import THEMES
+
 if TYPE_CHECKING:
     from r2rome.model import Graph
 
 # Path to bundled templates inside the package
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+# Graph canvas background color per theme, keyed the same as r2rome.model.THEMES.
+# Injected into rendered pages so the in-browser toggle can re-tint the embedded
+# SVG's background to match the page chrome without needing a second render.
+_CANVAS_BG_JSON = json.dumps({
+    name: theme["graph_attr"].get("bgcolor", "#0d0f14")
+    for name, theme in THEMES.items()
+})
 
 
 def _get_env() -> Environment:
@@ -84,6 +94,7 @@ def write_page(
     parent_href: Optional[str] = None,
     cdn: bool = False,
     graph_data: Optional[dict] = None,
+    color_scheme: str = "dark",
 ) -> None:
     """Write a single HTML page wrapping an SVG graph.
 
@@ -96,6 +107,8 @@ def write_page(
         parent_href:  Optional href for a 'back' link.
         cdn:          If True, use the interactive CDN-based viewer.
         graph_data:   Graph data dict passed to the CDN template as JSON.
+        color_scheme: The theme the SVG was rendered with ('dark' or 'light').
+                      Sets the page's initial background toggle state.
     """
     env  = _get_env()
     tmpl = env.get_template("cdn_page.html" if cdn else "offline_page.html")
@@ -106,6 +119,8 @@ def write_page(
         "parent_href":     parent_href,
         "cdn":             cdn,
         "graph_data_json": json.dumps(graph_data) if graph_data is not None else "null",
+        "initial_theme":   color_scheme if color_scheme in THEMES else "dark",
+        "canvas_bg_json":  _CANVAS_BG_JSON,
     }
 
     ctx["svg_content"] = _embed_svg(svg_path)
@@ -126,10 +141,13 @@ def write_all_pages(
         svg_dir:         Directory containing rendered .svg files.
         output_dir:      Directory to write .html files into.
         level_map:       List of level descriptors, each with keys:
-                           name:       graph name (matches svg filename stem)
-                           title:      display title
-                           parent:     parent graph name or None (root)
-                           children:   list of child graph names
+                           name:          graph name (matches svg filename stem)
+                           title:         display title
+                           parent:        parent graph name or None (root)
+                           children:      list of child graph names
+                           color_scheme:  theme the SVG was rendered with
+                                          ('dark' or 'light'); defaults to
+                                          'dark' if omitted
         cdn:             Write CDN-powered interactive pages.
         graph_data_map:  Mapping of graph name -> graph_data dict (required for cdn=True).
 
@@ -173,6 +191,7 @@ def write_all_pages(
             parent_href=f"{parent_stem}.html" if parent_stem else None,
             cdn=cdn,
             graph_data=(graph_data_map or {}).get(lvl["name"]),
+            color_scheme=lvl.get("color_scheme", "dark"),
         )
         written.append(out_path)
 

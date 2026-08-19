@@ -282,12 +282,36 @@ class Graph:
     def __post_init__(self) -> None:
         if self.title is None:
             self.title = self.name
+        # Preserve the caller's explicit graph_attr overrides (pre-merge) so
+        # set_color_scheme() can re-derive graph_attr for a different theme
+        # without losing them.
+        self._explicit_graph_attr: Dict[str, str] = dict(self.graph_attr)
         # Select the theme-appropriate graph defaults; caller overrides take precedence
         theme_graph_attr = THEMES.get(self.color_scheme, THEMES["dark"])["graph_attr"]
         merged = dict(theme_graph_attr)
         merged.update(self.graph_attr)
         merged["label"] = self.title
         self.graph_attr = merged
+
+    def set_color_scheme(self, scheme: str) -> None:
+        """Override the color scheme for this graph and every nested graph.
+
+        Re-derives graph_attr from the requested theme's defaults while
+        preserving any explicit graph_attr overrides from the YAML. Applies
+        recursively to subgraphs and inline node child-graphs so a single
+        call re-themes the whole tree (used by the CLI's --color-scheme flag).
+        """
+        self.color_scheme = scheme
+        theme_graph_attr = THEMES.get(scheme, THEMES["dark"])["graph_attr"]
+        merged = dict(theme_graph_attr)
+        merged.update(self._explicit_graph_attr)
+        merged["label"] = self.title
+        self.graph_attr = merged
+        for sg in self.subgraphs:
+            sg.set_color_scheme(scheme)
+        for node in self.nodes:
+            if node.children:
+                node.children.set_color_scheme(scheme)
 
     @property
     def dot_name(self) -> str:

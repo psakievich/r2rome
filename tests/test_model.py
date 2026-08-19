@@ -6,7 +6,15 @@ import json
 
 import pytest
 
-from r2rome.model import Graph, GraphNode, load, _coerce_list, build_node_registry, resolve_cross_ref
+from r2rome.model import (
+    THEMES,
+    Graph,
+    GraphNode,
+    _coerce_list,
+    build_node_registry,
+    load,
+    resolve_cross_ref,
+)
 
 
 class TestGraphNode:
@@ -195,6 +203,59 @@ class TestGraph:
         child = g.nodes[0].children
         assert child.name == "epic"
         assert child.title == "epic"
+
+
+class TestSetColorScheme:
+    def test_updates_color_scheme_attr(self):
+        g = Graph.from_dict({"name": "root"})
+        g.set_color_scheme("light")
+        assert g.color_scheme == "light"
+
+    def test_updates_bgcolor_to_match_theme(self):
+        g = Graph.from_dict({"name": "root"})
+        assert g.graph_attr["bgcolor"] == THEMES["dark"]["graph_attr"]["bgcolor"]
+        g.set_color_scheme("light")
+        assert g.graph_attr["bgcolor"] == THEMES["light"]["graph_attr"]["bgcolor"]
+
+    def test_preserves_explicit_graph_attr_overrides(self):
+        g = Graph.from_dict({"name": "root", "graph_attr": {"rankdir": "TB"}})
+        g.set_color_scheme("light")
+        assert g.graph_attr["rankdir"] == "TB"
+        assert g.graph_attr["bgcolor"] == THEMES["light"]["graph_attr"]["bgcolor"]
+
+    def test_recurses_into_subgraphs(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "graphs": [{"name": "sub", "nodes": [{"name": "x"}]}],
+        })
+        g.set_color_scheme("light")
+        assert g.subgraphs[0].color_scheme == "light"
+        assert g.subgraphs[0].graph_attr["bgcolor"] == THEMES["light"]["graph_attr"]["bgcolor"]
+
+    def test_recurses_into_inline_node_children(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "nodes": [{
+                "name": "epic",
+                "graph": {"nodes": [{"name": "task_a"}]},
+            }],
+        })
+        g.set_color_scheme("light")
+        child = g.nodes[0].children
+        assert child.color_scheme == "light"
+        assert child.graph_attr["bgcolor"] == THEMES["light"]["graph_attr"]["bgcolor"]
+
+    def test_unknown_scheme_falls_back_to_dark(self):
+        g = Graph.from_dict({"name": "root"})
+        g.set_color_scheme("solarized")
+        assert g.graph_attr["bgcolor"] == THEMES["dark"]["graph_attr"]["bgcolor"]
+
+    def test_can_be_reapplied(self):
+        """Switching scheme twice should not accumulate stale attrs."""
+        g = Graph.from_dict({"name": "root"})
+        g.set_color_scheme("light")
+        g.set_color_scheme("dark")
+        assert g.graph_attr["bgcolor"] == THEMES["dark"]["graph_attr"]["bgcolor"]
 
 
 class TestLoad:

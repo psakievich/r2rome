@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from r2rome import __version__
-from r2rome.model import load, Graph, build_node_registry
+from r2rome.model import load, Graph, THEMES, build_node_registry
 from r2rome.render import (
     dot_version,
     find_dot_binary,
@@ -54,11 +54,12 @@ except ImportError:
 def _collect_levels(graph: Graph, parent_name: Optional[str] = None) -> List[dict]:
     """Recursively collect level descriptors for html_writer."""
     levels = [{
-        "name":     graph.name,
-        "title":    graph.title or graph.name,
-        "parent":   parent_name,
-        "children": [sg.name for sg in graph.subgraphs] +
-                    [n.name for n in graph.nodes if n.children],
+        "name":         graph.name,
+        "title":        graph.title or graph.name,
+        "parent":       parent_name,
+        "color_scheme": graph.color_scheme,
+        "children":     [sg.name for sg in graph.subgraphs] +
+                        [n.name for n in graph.nodes if n.children],
     }]
     for sg in graph.subgraphs:
         levels.extend(_collect_levels(sg, parent_name=graph.name))
@@ -177,6 +178,9 @@ def cmd_render(args: argparse.Namespace) -> int:
         print(f"[r2rome] ERROR: {e}", file=sys.stderr)
         return 1
 
+    if args.color_scheme:
+        graph.set_color_scheme(args.color_scheme)
+
     registry = build_node_registry(graph)
 
     svg_dir = output_dir / "svg"
@@ -245,6 +249,9 @@ def cmd_dot(args: argparse.Namespace) -> int:
     except (FileNotFoundError, ValueError) as e:
         print(f"[r2rome] ERROR: {e}", file=sys.stderr)
         return 1
+
+    if args.color_scheme:
+        graph.set_color_scheme(args.color_scheme)
 
     registry = build_node_registry(graph)
 
@@ -431,6 +438,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Render cross-graph deps that point outside the current view as "
              "dashed ghost nodes rather than silently dropping the edge.",
     )
+    p_render.add_argument(
+        "--color-scheme", default=None, choices=sorted(THEMES),
+        help="Override the project's color_scheme for this render "
+             "(default: value from the YAML, or 'dark'). Rendered HTML pages "
+             "also include a background toggle button.",
+    )
     p_render.set_defaults(func=cmd_render)
 
     # -- dot ------------------------------------------------------------------
@@ -463,6 +476,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--ghost-external", action="store_true",
         help="Render cross-graph deps that point outside the current view as "
              "dashed ghost nodes rather than silently dropping the edge.",
+    )
+    p_dot.add_argument(
+        "--color-scheme", default=None, choices=sorted(THEMES),
+        help="Override the project's color_scheme for this output "
+             "(default: value from the YAML, or 'dark').",
     )
     p_dot.set_defaults(func=cmd_dot)
 

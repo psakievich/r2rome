@@ -71,6 +71,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dev tools
-        run: pip install ruff
+        # Pinned: newer ruff releases have promoted several rules (UP006,
+        # UP045, TRY004, BLE001, SIM117, I001) to default-on, which the
+        # existing codebase doesn't conform to yet. Bump this deliberately
+        # once the codebase is updated to match.
+        run: pip install "ruff==0.15.8"
       - name: Ruff check
         run: ruff check src/ tests/

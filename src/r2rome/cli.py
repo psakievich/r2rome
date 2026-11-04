@@ -29,6 +29,7 @@ from typing import List, Optional
 
 from r2rome import __version__
 from r2rome.model import load, Graph, THEMES, build_node_registry
+from r2rome.assemble import GHOST_MODES
 from r2rome.render import (
     dot_version,
     find_dot_binary,
@@ -386,6 +387,21 @@ def cmd_scratch(args: argparse.Namespace) -> int:
 # Argument parser
 # ---------------------------------------------------------------------------
 
+def _add_ghost_args(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--ghost", dest="ghost_external", default=None, choices=GHOST_MODES,
+        help="Show nodes just outside the current view as dashed ghost nodes "
+             "instead of dropping the edges to them: 'upstream' (what this "
+             "view waits on), 'downstream' (what waits on this view) or "
+             "'both' (one full layer around the view).",
+    )
+    group.add_argument(
+        "--ghost-external", dest="ghost_external", action="store_const",
+        const="both", help="Shorthand for --ghost both.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="r2rome",
@@ -434,11 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--keep-dot", action="store_true",
         help="Keep intermediate .dot source files alongside rendered output.",
     )
-    p_render.add_argument(
-        "--ghost-external", action="store_true",
-        help="Render cross-graph deps that point outside the current view as "
-             "dashed ghost nodes rather than silently dropping the edge.",
-    )
+    _add_ghost_args(p_render)
     p_render.add_argument(
         "--color-scheme", default=None, choices=sorted(THEMES),
         help="Override the project's color_scheme for this render "
@@ -485,11 +497,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--depth", type=int, default=None, metavar="N",
         help="Max depth before collapsing subgraphs (default: unlimited)",
     )
-    p_dot.add_argument(
-        "--ghost-external", action="store_true",
-        help="Render cross-graph deps that point outside the current view as "
-             "dashed ghost nodes rather than silently dropping the edge.",
-    )
+    _add_ghost_args(p_dot)
     p_dot.add_argument(
         "--color-scheme", default=None, choices=sorted(THEMES),
         help="Override the project's color_scheme for this output "

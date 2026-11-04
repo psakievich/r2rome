@@ -25,12 +25,11 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Union
 
 
 from r2rome.model import Graph, GraphNode
 from r2rome.assemble import build_digraph
-from typing import Dict
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +89,7 @@ def to_dot_source(
     max_depth: Optional[int] = None,
     output_dir: Optional[str] = None,
     registry: Optional[Dict[str, GraphNode]] = None,
-    ghost_external: bool = False,
+    ghost_external: Union[bool, str, None] = False,
 ) -> str:
     """Return the DOT language source for a graph.
 
@@ -101,7 +100,7 @@ def to_dot_source(
         max_depth:      Depth limit for subgraph expansion (None = unlimited).
         output_dir:     Used to generate href paths on collapsed nodes.
         registry:       Node registry for cross-graph edge resolution.
-        ghost_external: Render out-of-scope deps as ghost nodes.
+        ghost_external: See build_digraph.
 
     Returns:
         A DOT language string suitable for piping to dot or saving as .gv.
@@ -127,7 +126,7 @@ def render_graph(
     max_depth: Optional[int] = None,
     cleanup: bool = True,
     registry: Optional[Dict[str, GraphNode]] = None,
-    ghost_external: bool = False,
+    ghost_external: Union[bool, str, None] = False,
 ) -> Path:
     """Render a graph to an image file using the dot binary.
 
@@ -138,7 +137,7 @@ def render_graph(
         max_depth:      Collapse subgraphs beyond this depth to hyperlinked nodes.
         cleanup:        Remove the intermediate .dot file after rendering.
         registry:       Node registry for cross-graph edge resolution.
-        ghost_external: Render out-of-scope deps as ghost nodes.
+        ghost_external: See build_digraph.
 
     Returns:
         Path to the rendered output file (output_path with format extension).
@@ -172,7 +171,7 @@ def render_all_levels(
     max_depth: Optional[int] = None,
     cleanup: bool = True,
     registry: Optional[Dict[str, GraphNode]] = None,
-    ghost_external: bool = False,
+    ghost_external: Union[bool, str, None] = False,
 ) -> List[Path]:
     """Render each graph level to a separate file.
 
@@ -187,7 +186,7 @@ def render_all_levels(
         max_depth:      Passed through to each render call.
         cleanup:        Remove intermediate .dot files.
         registry:       Node registry for cross-graph edge resolution.
-        ghost_external: Render out-of-scope deps as ghost nodes.
+        ghost_external: See build_digraph.
 
     Returns:
         List of Paths to all rendered files.

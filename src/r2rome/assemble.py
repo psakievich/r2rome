@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple, Union
 
 from graphviz import Digraph
 
@@ -47,13 +47,41 @@ class _CrossCtx:
     for final emission at the root level.
     """
     registry:      Dict[str, GraphNode]        # full-path → node
-    renderable:    Set[str]                    # short names present in this DOT scope
     all_clusters:  Set[str]                    # short names rendered as clusters
     deferred:      List[Tuple[str, str, str]]  # (src, tgt, "dep"|"blocks")
     ghost_nodes:   Dict[str, GraphNode]         # ghost_dot_id → original node
-    ghost_edges:   List[Tuple[str, str, str]]  # (src, ghost_dot_id, "dep"|"blocks")
-    ghost_external: bool
+    ghost_edges:   List[Tuple[str, str, str]]  # (src, dst, "dep"|"blocks"); one end is a ghost
+    ghost:         FrozenSet[str]              # directions to ghost: "upstream"/"downstream"
     theme:         Dict[str, Any]
+    scope_ids:     Set[int]                    # id() of every GraphNode in the render scope
+
+
+_BOTH = frozenset({"upstream", "downstream"})
+_GHOST_MODES: Dict[Union[bool, str, None], FrozenSet[str]] = {
+    None:         frozenset(),
+    False:        frozenset(),
+    True:         _BOTH,
+    "both":       _BOTH,
+    "upstream":   frozenset({"upstream"}),
+    "downstream": frozenset({"downstream"}),
+}
+GHOST_MODES = ("upstream", "downstream", "both")
+
+
+def _parse_ghost_mode(ghost_external: Union[bool, str, None]) -> FrozenSet[str]:
+    """Map a ``ghost_external`` value to the set of directions to ghost."""
+    try:
+        return _GHOST_MODES[ghost_external]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"ghost_external must be a bool or one of {GHOST_MODES}, "
+            f"got {ghost_external!r}"
+        ) from None
+
+
+def _direction(kind: str, outgoing: bool) -> str:
+    """'upstream' if the outside node is something the view waits on."""
+    return "upstream" if (kind == "dep") == outgoing else "downstream"
 
 
 def _ghost_dot_id(full_path: str) -> str:
@@ -61,15 +89,15 @@ def _ghost_dot_id(full_path: str) -> str:
     return "__ghost__" + full_path.replace("::", "__")
 
 
-def _collect_renderable(graph: Graph) -> Set[str]:
-    """Recursively collect all node short-names in a graph tree."""
-    names: Set[str] = {n.name for n in graph.nodes}
+def _collect_scope_ids(graph: Graph) -> Set[int]:
+    """Recursively collect id() of every GraphNode in a graph tree."""
+    ids: Set[int] = {id(n) for n in graph.nodes}
     for sg in graph.subgraphs:
-        names |= _collect_renderable(sg)
+        ids |= _collect_scope_ids(sg)
     for node in graph.nodes:
         if node.children:
-            names |= _collect_renderable(node.children)
-    return names
+            ids |= _collect_scope_ids(node.children)
+    return ids
 
 
 # ---------------------------------------------------------------------------
@@ -225,14 +253,16 @@ def _add_edges(
         _full_path, _tgt_node = resolved
         tgt_short = _tgt_node.name
 
-        if tgt_short in cross_ctx.renderable:
+        if id(_tgt_node) in cross_ctx.scope_ids:
             # Both endpoints will be in the DOT graph — defer to root
             cross_ctx.deferred.append((node.name, tgt_short, kind))
-        elif cross_ctx.ghost_external:
+            return
+
+        if _direction(kind, outgoing=True) in cross_ctx.ghost:
             ghost_id = _ghost_dot_id(_full_path)
             cross_ctx.ghost_nodes[ghost_id] = _tgt_node  # store full node
             cross_ctx.ghost_edges.append((node.name, ghost_id, kind))
-        else:
+        elif not cross_ctx.ghost:
             warnings.warn(
                 f"Node '{node.name}' has cross-graph {kind} '{ref}' which "
                 "targets a node outside the current render scope — edge "
@@ -371,7 +401,7 @@ def build_digraph(
     output_dir: Optional[str] = None,
     theme: Optional[Dict] = None,
     registry: Optional[Dict[str, GraphNode]] = None,
-    ghost_external: bool = False,
+    ghost_external: Union[bool, str, None] = False,
     _cross_ctx: Optional[_CrossCtx] = None,
 ) -> Digraph:
     """Recursively assemble a Graph into a graphviz.Digraph.
@@ -391,9 +421,9 @@ def build_digraph(
         registry:       Full node registry from build_node_registry(). When
                         provided, deps/blocks containing '::' are resolved as
                         cross-graph references.
-        ghost_external: When True, deps/blocks that point outside the current
-                        render scope are rendered as dashed ghost nodes rather
-                        than being silently skipped.
+        ghost_external: Draw out-of-scope neighbours as dashed ghost nodes:
+                        ``"upstream"``, ``"downstream"``, ``"both"``/``True``,
+                        or off.  Requires registry.
 
     Returns:
         The assembled Digraph (same object as parent if parent was provided).
@@ -405,18 +435,21 @@ def build_digraph(
         scheme = getattr(graph, "color_scheme", "dark")
         theme = THEMES.get(scheme, THEMES["dark"])
 
-    # Initialise cross-graph context once at the root call
-    if is_root and registry is not None and _cross_ctx is None:
-        _cross_ctx = _CrossCtx(
-            registry=registry,
-            renderable=_collect_renderable(graph),
-            all_clusters=set(),
-            deferred=[],
-            ghost_nodes={},
-            ghost_edges=[],
-            ghost_external=ghost_external,
-            theme=theme,
-        )
+    # Initialise cross-graph context once at the root call; validate the
+    # ghost mode even when there is no registry to apply it to.
+    if is_root and _cross_ctx is None:
+        ghost = _parse_ghost_mode(ghost_external)
+        if registry is not None:
+            _cross_ctx = _CrossCtx(
+                registry=registry,
+                all_clusters=set(),
+                deferred=[],
+                ghost_nodes={},
+                ghost_edges=[],
+                ghost=ghost,
+                theme=theme,
+                scope_ids=_collect_scope_ids(graph),
+            )
 
     if is_root:
         g_attr = dict(graph.graph_attr)
@@ -500,6 +533,7 @@ def build_digraph(
 
     # At root: emit ghost nodes, ghost edges, and deferred cross-graph edges
     if is_root and _cross_ctx is not None:
+        _collect_incoming_ghosts(_cross_ctx)
         _emit_ghosts_and_deferred(dot, _cross_ctx)
 
     if is_root:
@@ -509,6 +543,34 @@ def build_digraph(
         parent.subgraph(dot)
 
     return parent or dot
+
+
+def _collect_incoming_ghosts(ctx: _CrossCtx) -> None:
+    """Ghost outside nodes whose deps/blocks point *into* the render scope."""
+    if not ctx.ghost:
+        return
+
+    for src_path, src_node in ctx.registry.items():
+        if id(src_node) in ctx.scope_ids:
+            continue
+        prefix = src_path.rsplit("::", 1)[0]
+        refs = [(r, "dep") for r in src_node.deps] + [(r, "blocks") for r in src_node.blocks]
+        for ref, kind in refs:
+            if "::" in ref:
+                # Ambiguity here concerns edges outside this view — stay quiet.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    resolved = resolve_cross_ref(ref, ctx.registry)
+                tgt = resolved[1] if resolved else None
+            else:
+                tgt = ctx.registry.get(f"{prefix}::{ref}")
+            if tgt is None or id(tgt) not in ctx.scope_ids:
+                continue
+            if _direction(kind, outgoing=False) not in ctx.ghost:
+                continue
+            ghost_id = _ghost_dot_id(src_path)
+            ctx.ghost_nodes[ghost_id] = src_node
+            ctx.ghost_edges.append((ghost_id, tgt.name, kind))
 
 
 def _emit_ghosts_and_deferred(dot: Digraph, ctx: _CrossCtx) -> None:
@@ -529,11 +591,13 @@ def _emit_ghosts_and_deferred(dot: Digraph, ctx: _CrossCtx) -> None:
         attrs["tooltip"] = orig_node.note if orig_node.note else full_path
         dot.node(ghost_id, label=orig_node.label or orig_node.name, **attrs)
 
-    for src, ghost_id, kind in ctx.ghost_edges:
-        if kind == "blocks":
-            dot.edge(src, ghost_id, **dict(theme["blocks_edge"]))
-        else:
-            dot.edge(src, ghost_id)
+    for src, dst, kind in ctx.ghost_edges:
+        edge_attrs = dict(theme["blocks_edge"]) if kind == "blocks" else {}
+        if src in ctx.all_clusters:
+            edge_attrs["ltail"] = f"cluster_{src}"
+        if dst in ctx.all_clusters:
+            edge_attrs["lhead"] = f"cluster_{dst}"
+        dot.edge(src, dst, **edge_attrs)
 
     for src, tgt, kind in ctx.deferred:
         edge_attrs: Dict[str, str] = {}

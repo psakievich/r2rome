@@ -95,6 +95,7 @@ def write_page(
     cdn: bool = False,
     graph_data: Optional[dict] = None,
     color_scheme: str = "dark",
+    watermark: bool = False,
 ) -> None:
     """Write a single HTML page wrapping an SVG graph.
 
@@ -109,6 +110,9 @@ def write_page(
         graph_data:   Graph data dict passed to the CDN template as JSON.
         color_scheme: The theme the SVG was rendered with ('dark' or 'light').
                       Sets the page's initial background toggle state.
+        watermark:    Show the r2rome brand (nav logo, footer, title suffix).
+                      Off by default so exported pages carry only the
+                      project's own content.
     """
     env  = _get_env()
     tmpl = env.get_template("cdn_page.html" if cdn else "offline_page.html")
@@ -121,6 +125,7 @@ def write_page(
         "graph_data_json": json.dumps(graph_data) if graph_data is not None else "null",
         "initial_theme":   color_scheme if color_scheme in THEMES else "dark",
         "canvas_bg_json":  _CANVAS_BG_JSON,
+        "watermark":       watermark,
     }
 
     ctx["svg_content"] = _embed_svg(svg_path)
@@ -134,6 +139,7 @@ def write_all_pages(
     level_map: List[dict],
     cdn: bool = False,
     graph_data_map: Optional[Dict[str, dict]] = None,
+    watermark: bool = False,
 ) -> List[Path]:
     """Write HTML pages for all rendered SVG files.
 
@@ -150,6 +156,7 @@ def write_all_pages(
                                           'dark' if omitted
         cdn:             Write CDN-powered interactive pages.
         graph_data_map:  Mapping of graph name -> graph_data dict (required for cdn=True).
+        watermark:       Show the r2rome brand on every page (default off).
 
     Returns:
         List of paths to written HTML files.
@@ -192,6 +199,7 @@ def write_all_pages(
             cdn=cdn,
             graph_data=(graph_data_map or {}).get(lvl["name"]),
             color_scheme=lvl.get("color_scheme", "dark"),
+            watermark=watermark,
         )
         written.append(out_path)
 

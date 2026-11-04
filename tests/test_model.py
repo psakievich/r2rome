@@ -448,3 +448,11 @@ class TestCoerceList:
     def test_invalid_type_raises(self):
         with pytest.raises(ValueError, match="expected a list or string"):
             _coerce_list(42, "ctx")
+
+
+class TestWatermarkField:
+    def test_defaults_off(self):
+        assert Graph.from_dict({"name": "root"}).watermark is False
+
+    def test_parsed_from_yaml(self):
+        assert Graph.from_dict({"name": "root", "watermark": True}).watermark is True

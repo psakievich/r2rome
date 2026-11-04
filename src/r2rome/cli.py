@@ -223,6 +223,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         level_map=levels,
         cdn=cdn,
         graph_data_map=graph_data_map,
+        watermark=graph.watermark if args.watermark is None else args.watermark,
     )
 
     print(f"[r2rome] wrote {len(html_files)} HTML page(s)", file=sys.stderr)
@@ -443,6 +444,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the project's color_scheme for this render "
              "(default: value from the YAML, or 'dark'). Rendered HTML pages "
              "also include a background toggle button.",
+    )
+    _wm = p_render.add_mutually_exclusive_group()
+    _wm.add_argument(
+        "--watermark", dest="watermark", action="store_const", const=True,
+        default=None,
+        help="Show the r2rome brand (nav logo and footer) on rendered HTML "
+             "pages. Off by default; can also be set with 'watermark: true' "
+             "at the top of the YAML.",
+    )
+    _wm.add_argument(
+        "--no-watermark", dest="watermark", action="store_const", const=False,
+        help="Hide the r2rome brand even if the YAML sets 'watermark: true'.",
     )
     p_render.set_defaults(func=cmd_render)
 

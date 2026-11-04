@@ -275,6 +275,7 @@ class Graph:
     title: Optional[str] = None
     cluster: bool = True
     color_scheme: str = "dark"
+    watermark: bool = False
     graph_attr: Dict[str, str] = field(default_factory=dict)
     nodes: List[GraphNode] = field(default_factory=list)
     subgraphs: List["Graph"] = field(default_factory=list)
@@ -330,6 +331,7 @@ class Graph:
         cluster      = data.get("cluster", True)
         color_scheme = data.get("color_scheme", "dark")
         graph_attr   = data.get("graph_attr", {})
+        watermark    = bool(data.get("watermark", False))
 
         nodes: List[GraphNode] = [
             GraphNode(name=n) if isinstance(n, str) else GraphNode.from_dict(n)
@@ -345,6 +347,7 @@ class Graph:
             title=title,
             cluster=cluster,
             color_scheme=color_scheme,
+            watermark=watermark,
             graph_attr=graph_attr,
             nodes=nodes,
             subgraphs=subgraphs,

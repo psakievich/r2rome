@@ -77,6 +77,11 @@
           "default": "dark",
           "description": "Rendering theme."
         },
+        "watermark": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the r2rome brand (nav logo and footer) on rendered HTML pages. Only read from the top-level graph; the CLI's --watermark/--no-watermark flags override it."
+        },
         "graph_attr": {
           "type": "object",
           "additionalProperties": { "type": "string" },

@@ -418,9 +418,14 @@ def build_digraph(
             theme=theme,
         )
 
-    g_attr = dict(graph.graph_attr)
     if is_root:
+        g_attr = dict(graph.graph_attr)
         g_attr["compound"] = "true"
+    else:
+        # A nested graph is drawn in the theme of the page being rendered,
+        # even if it declares its own color_scheme.  Its own scheme applies
+        # only when it is rendered as the root of its own page.
+        g_attr = graph.themed_graph_attr(theme["graph_attr"])
 
     dot = Digraph(
         name=graph.name if is_root else graph.dot_name,

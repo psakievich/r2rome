@@ -216,8 +216,19 @@ class GraphNode:
         return attrs
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GraphNode":
-        """Parse a node from a YAML dict, forwarding unknown keys to DOT."""
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        inherited_color_scheme: Optional[str] = None,
+    ) -> "GraphNode":
+        """Parse a node from a YAML dict, forwarding unknown keys to DOT.
+
+        Args:
+            data:                   The node mapping from YAML.
+            inherited_color_scheme: The enclosing graph's color_scheme, passed
+                                    down so a nested ``graph:``/``graphs:``
+                                    block inherits it unless it sets its own.
+        """
         if "name" not in data:
             raise ValueError(f"Node missing required field 'name': {data}")
 
@@ -242,9 +253,14 @@ class GraphNode:
             graph_data = dict(data["graph"])
             graph_data.setdefault("name", name)
             graph_data.setdefault("title", label or name)
-            children = Graph.from_dict(graph_data)
+            children = Graph.from_dict(
+                graph_data, inherited_color_scheme=inherited_color_scheme,
+            )
         elif "graphs" in data:
-            children = Graph.from_dict({"name": name, "graphs": data["graphs"]})
+            children = Graph.from_dict(
+                {"name": name, "graphs": data["graphs"]},
+                inherited_color_scheme=inherited_color_scheme,
+            )
 
         return cls(
             name=name,
@@ -288,11 +304,22 @@ class Graph:
         # without losing them.
         self._explicit_graph_attr: Dict[str, str] = dict(self.graph_attr)
         # Select the theme-appropriate graph defaults; caller overrides take precedence
-        theme_graph_attr = THEMES.get(self.color_scheme, THEMES["dark"])["graph_attr"]
+        self.graph_attr = self.themed_graph_attr(
+            THEMES.get(self.color_scheme, THEMES["dark"])["graph_attr"]
+        )
+
+    def themed_graph_attr(self, theme_graph_attr: Dict[str, str]) -> Dict[str, str]:
+        """Return this graph's DOT graph attributes under a given theme.
+
+        The theme's defaults are overlaid with the explicit ``graph_attr``
+        from the YAML, and the title becomes the label.  Used when this graph
+        is drawn as a cluster inside a page rendered with a different theme
+        than its own ``color_scheme``: the page's theme wins on that page.
+        """
         merged = dict(theme_graph_attr)
-        merged.update(self.graph_attr)
+        merged.update(self._explicit_graph_attr)
         merged["label"] = self.title
-        self.graph_attr = merged
+        return merged
 
     def set_color_scheme(self, scheme: str) -> None:
         """Override the color scheme for this graph and every nested graph.
@@ -303,11 +330,9 @@ class Graph:
         call re-themes the whole tree (used by the CLI's --color-scheme flag).
         """
         self.color_scheme = scheme
-        theme_graph_attr = THEMES.get(scheme, THEMES["dark"])["graph_attr"]
-        merged = dict(theme_graph_attr)
-        merged.update(self._explicit_graph_attr)
-        merged["label"] = self.title
-        self.graph_attr = merged
+        self.graph_attr = self.themed_graph_attr(
+            THEMES.get(scheme, THEMES["dark"])["graph_attr"]
+        )
         for sg in self.subgraphs:
             sg.set_color_scheme(scheme)
         for node in self.nodes:
@@ -324,12 +349,22 @@ class Graph:
         return [n.name for n in self.nodes]
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Graph":
-        """Parse a Graph from a YAML dict (top-level or nested)."""
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        inherited_color_scheme: Optional[str] = None,
+    ) -> "Graph":
+        """Parse a Graph from a YAML dict (top-level or nested).
+
+        ``color_scheme`` cascades: a nested graph that does not declare its
+        own ``color_scheme`` inherits the nearest ancestor's, so setting it
+        once at the top of the file themes every subgraph page and cluster.
+        Falls back to ``'dark'`` when nothing in the chain sets it.
+        """
         name         = data.get("name", "root")
         title        = data.get("title", name)
         cluster      = data.get("cluster", True)
-        color_scheme = data.get("color_scheme", "dark")
+        color_scheme = data.get("color_scheme") or inherited_color_scheme or "dark"
         graph_attr   = data.get("graph_attr", {})
         watermark    = data.get("watermark", False)
         if not isinstance(watermark, bool):
@@ -340,12 +375,14 @@ class Graph:
             )
 
         nodes: List[GraphNode] = [
-            GraphNode(name=n) if isinstance(n, str) else GraphNode.from_dict(n)
+            GraphNode(name=n) if isinstance(n, str)
+            else GraphNode.from_dict(n, inherited_color_scheme=color_scheme)
             for n in data.get("nodes", [])
         ]
 
         subgraphs: List[Graph] = [
-            Graph.from_dict(g) for g in data.get("graphs", [])
+            Graph.from_dict(g, inherited_color_scheme=color_scheme)
+            for g in data.get("graphs", [])
         ]
 
         return cls(

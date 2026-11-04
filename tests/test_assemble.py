@@ -248,3 +248,35 @@ class TestCrossGraphEdges:
                       if "could not be resolved" in str(warning.message)]
         assert len(unresolved) == 0
         assert "x" in src and "z" in src
+
+
+class TestNestedSchemeOnParentPage:
+    """Issue #14: the page's theme wins for clusters drawn on that page."""
+
+    _YAML = {
+        "name": "root",
+        "color_scheme": "light",
+        "graphs": [{
+            "name": "darkepic",
+            "color_scheme": "dark",
+            "graph_attr": {"rankdir": "TB"},
+            "nodes": [{"name": "z"}],
+        }],
+    }
+
+    def test_cluster_uses_page_theme_not_own_scheme(self):
+        from r2rome.model import THEMES
+        src = build_digraph(Graph.from_dict(self._YAML)).source
+        assert THEMES["dark"]["graph_attr"]["bgcolor"] not in src
+        assert THEMES["light"]["graph_attr"]["bgcolor"] in src
+
+    def test_explicit_graph_attr_survives_on_parent_page(self):
+        src = build_digraph(Graph.from_dict(self._YAML)).source
+        assert "rankdir=TB" in src
+
+    def test_own_scheme_applies_on_own_page(self):
+        from r2rome.model import THEMES
+        sub = Graph.from_dict(self._YAML).subgraphs[0]
+        src = build_digraph(sub).source
+        assert THEMES["dark"]["graph_attr"]["bgcolor"] in src
+        assert THEMES["light"]["graph_attr"]["bgcolor"] not in src

@@ -304,11 +304,22 @@ class Graph:
         # without losing them.
         self._explicit_graph_attr: Dict[str, str] = dict(self.graph_attr)
         # Select the theme-appropriate graph defaults; caller overrides take precedence
-        theme_graph_attr = THEMES.get(self.color_scheme, THEMES["dark"])["graph_attr"]
+        self.graph_attr = self.themed_graph_attr(
+            THEMES.get(self.color_scheme, THEMES["dark"])["graph_attr"]
+        )
+
+    def themed_graph_attr(self, theme_graph_attr: Dict[str, str]) -> Dict[str, str]:
+        """Return this graph's DOT graph attributes under a given theme.
+
+        The theme's defaults are overlaid with the explicit ``graph_attr``
+        from the YAML, and the title becomes the label.  Used when this graph
+        is drawn as a cluster inside a page rendered with a different theme
+        than its own ``color_scheme``: the page's theme wins on that page.
+        """
         merged = dict(theme_graph_attr)
-        merged.update(self.graph_attr)
+        merged.update(self._explicit_graph_attr)
         merged["label"] = self.title
-        self.graph_attr = merged
+        return merged
 
     def set_color_scheme(self, scheme: str) -> None:
         """Override the color scheme for this graph and every nested graph.
@@ -319,11 +330,9 @@ class Graph:
         call re-themes the whole tree (used by the CLI's --color-scheme flag).
         """
         self.color_scheme = scheme
-        theme_graph_attr = THEMES.get(scheme, THEMES["dark"])["graph_attr"]
-        merged = dict(theme_graph_attr)
-        merged.update(self._explicit_graph_attr)
-        merged["label"] = self.title
-        self.graph_attr = merged
+        self.graph_attr = self.themed_graph_attr(
+            THEMES.get(scheme, THEMES["dark"])["graph_attr"]
+        )
         for sg in self.subgraphs:
             sg.set_color_scheme(scheme)
         for node in self.nodes:

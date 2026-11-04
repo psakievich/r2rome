@@ -461,3 +461,73 @@ class TestWatermarkField:
     def test_non_boolean_rejected(self, bad):
         with pytest.raises(ValueError, match="'watermark' must be true or false"):
             Graph.from_dict({"name": "root", "watermark": bad})
+
+
+class TestColorSchemeInheritance:
+    """Issue #14: a color_scheme set at the top must reach every subgraph."""
+
+    def test_graphs_list_inherits_parent_scheme(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "color_scheme": "light",
+            "graphs": [{"name": "sub", "nodes": [{"name": "x"}]}],
+        })
+        sub = g.subgraphs[0]
+        assert sub.color_scheme == "light"
+        assert sub.graph_attr["bgcolor"] == THEMES["light"]["graph_attr"]["bgcolor"]
+
+    def test_inline_node_graph_inherits_parent_scheme(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "color_scheme": "light",
+            "nodes": [{"name": "epic", "graph": {"nodes": [{"name": "t"}]}}],
+        })
+        child = g.nodes[0].children
+        assert child.color_scheme == "light"
+        assert child.graph_attr["bgcolor"] == THEMES["light"]["graph_attr"]["bgcolor"]
+
+    def test_node_graphs_list_inherits_parent_scheme(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "color_scheme": "light",
+            "nodes": [{"name": "epic", "graphs": [{"name": "inner"}]}],
+        })
+        epic = g.nodes[0].children
+        assert epic.color_scheme == "light"
+        assert epic.subgraphs[0].color_scheme == "light"
+
+    def test_inherits_through_multiple_levels(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "color_scheme": "light",
+            "nodes": [{
+                "name": "a",
+                "graph": {"nodes": [{
+                    "name": "b",
+                    "graph": {"nodes": [{"name": "c"}]},
+                }]},
+            }],
+        })
+        deepest = g.nodes[0].children.nodes[0].children
+        assert deepest.color_scheme == "light"
+
+    def test_nested_explicit_scheme_wins_and_cascades(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "color_scheme": "light",
+            "graphs": [{
+                "name": "sub",
+                "color_scheme": "dark",
+                "graphs": [{"name": "subsub"}],
+            }],
+        })
+        assert g.subgraphs[0].color_scheme == "dark"
+        assert g.subgraphs[0].subgraphs[0].color_scheme == "dark"
+
+    def test_default_is_dark_when_unset(self):
+        g = Graph.from_dict({
+            "name": "root",
+            "graphs": [{"name": "sub"}],
+        })
+        assert g.color_scheme == "dark"
+        assert g.subgraphs[0].color_scheme == "dark"

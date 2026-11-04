@@ -75,7 +75,7 @@
           "type": "string",
           "enum": ["dark", "light"],
           "default": "dark",
-          "description": "Rendering theme."
+          "description": "Rendering theme. Nested graphs inherit the nearest ancestor's color_scheme unless they set their own."
         },
         "watermark": {
           "type": "boolean",

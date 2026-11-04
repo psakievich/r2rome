@@ -216,8 +216,19 @@ class GraphNode:
         return attrs
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GraphNode":
-        """Parse a node from a YAML dict, forwarding unknown keys to DOT."""
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        inherited_color_scheme: Optional[str] = None,
+    ) -> "GraphNode":
+        """Parse a node from a YAML dict, forwarding unknown keys to DOT.
+
+        Args:
+            data:                   The node mapping from YAML.
+            inherited_color_scheme: The enclosing graph's color_scheme, passed
+                                    down so a nested ``graph:``/``graphs:``
+                                    block inherits it unless it sets its own.
+        """
         if "name" not in data:
             raise ValueError(f"Node missing required field 'name': {data}")
 
@@ -242,9 +253,14 @@ class GraphNode:
             graph_data = dict(data["graph"])
             graph_data.setdefault("name", name)
             graph_data.setdefault("title", label or name)
-            children = Graph.from_dict(graph_data)
+            children = Graph.from_dict(
+                graph_data, inherited_color_scheme=inherited_color_scheme,
+            )
         elif "graphs" in data:
-            children = Graph.from_dict({"name": name, "graphs": data["graphs"]})
+            children = Graph.from_dict(
+                {"name": name, "graphs": data["graphs"]},
+                inherited_color_scheme=inherited_color_scheme,
+            )
 
         return cls(
             name=name,
@@ -324,12 +340,22 @@ class Graph:
         return [n.name for n in self.nodes]
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Graph":
-        """Parse a Graph from a YAML dict (top-level or nested)."""
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        inherited_color_scheme: Optional[str] = None,
+    ) -> "Graph":
+        """Parse a Graph from a YAML dict (top-level or nested).
+
+        ``color_scheme`` cascades: a nested graph that does not declare its
+        own ``color_scheme`` inherits the nearest ancestor's, so setting it
+        once at the top of the file themes every subgraph page and cluster.
+        Falls back to ``'dark'`` when nothing in the chain sets it.
+        """
         name         = data.get("name", "root")
         title        = data.get("title", name)
         cluster      = data.get("cluster", True)
-        color_scheme = data.get("color_scheme", "dark")
+        color_scheme = data.get("color_scheme") or inherited_color_scheme or "dark"
         graph_attr   = data.get("graph_attr", {})
         watermark    = data.get("watermark", False)
         if not isinstance(watermark, bool):
@@ -340,12 +366,14 @@ class Graph:
             )
 
         nodes: List[GraphNode] = [
-            GraphNode(name=n) if isinstance(n, str) else GraphNode.from_dict(n)
+            GraphNode(name=n) if isinstance(n, str)
+            else GraphNode.from_dict(n, inherited_color_scheme=color_scheme)
             for n in data.get("nodes", [])
         ]
 
         subgraphs: List[Graph] = [
-            Graph.from_dict(g) for g in data.get("graphs", [])
+            Graph.from_dict(g, inherited_color_scheme=color_scheme)
+            for g in data.get("graphs", [])
         ]
 
         return cls(

@@ -15,6 +15,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         python-version: ["3.8", "3.10", "3.12"]
+        # ubuntu-latest (26.04+) has no Python 3.8 build in actions/python-versions;
+        # 3.8.18 (final release) is built up to Ubuntu 24.04. Keep 3.8 coverage on
+        # Linux because HPC/Spack environments may still ship it (see CLAUDE.md).
+        exclude:
+          - os: ubuntu-latest
+            python-version: "3.8"
+        include:
+          - os: ubuntu-24.04
+            python-version: "3.8"
 
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +45,7 @@ jobs:
 
       - name: Install graphviz and run render tests
         # Run a second pass with graphviz available to exercise the render path
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get install -y graphviz
           pytest tests/test_render.py -v

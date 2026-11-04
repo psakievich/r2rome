@@ -456,3 +456,8 @@ class TestWatermarkField:
 
     def test_parsed_from_yaml(self):
         assert Graph.from_dict({"name": "root", "watermark": True}).watermark is True
+
+    @pytest.mark.parametrize("bad", ["false", "true", 0, 1, None])
+    def test_non_boolean_rejected(self, bad):
+        with pytest.raises(ValueError, match="'watermark' must be true or false"):
+            Graph.from_dict({"name": "root", "watermark": bad})

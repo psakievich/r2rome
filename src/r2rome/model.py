@@ -331,7 +331,13 @@ class Graph:
         cluster      = data.get("cluster", True)
         color_scheme = data.get("color_scheme", "dark")
         graph_attr   = data.get("graph_attr", {})
-        watermark    = bool(data.get("watermark", False))
+        watermark    = data.get("watermark", False)
+        if not isinstance(watermark, bool):
+            # Reject strings like "false" that bool() would treat as True.
+            raise ValueError(
+                f"Graph '{name}': 'watermark' must be true or false, "
+                f"got {watermark!r}"
+            )
 
         nodes: List[GraphNode] = [
             GraphNode(name=n) if isinstance(n, str) else GraphNode.from_dict(n)

@@ -56,6 +56,9 @@ r2rome render project.yaml -o out/ --cdn
 # Render with a specific color scheme, overriding the YAML's color_scheme
 r2rome render project.yaml -o out/ --color-scheme light
 
+# Show the r2rome brand (nav logo + footer) on HTML pages — off by default
+r2rome render project.yaml -o out/ --watermark
+
 # Emit DOT source (no graphviz binary needed)
 r2rome dot project.yaml
 r2rome dot project.yaml --level my_epic
@@ -78,6 +81,8 @@ The rendered output for [`examples/platform-rewrite.yaml`](examples/platform-rew
 name: root                    # required
 title: My Project             # optional display title
 color_scheme: dark            # optional: dark (default) | light — override with --color-scheme
+watermark: false              # optional: show r2rome brand on HTML pages (top level only)
+                              # override with --watermark / --no-watermark
 
 nodes:
   - name: epic_one            # required, unique identifier

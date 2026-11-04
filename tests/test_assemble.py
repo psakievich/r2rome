@@ -374,3 +374,8 @@ class TestGhostDirections:
         root, reg = self._project()
         with pytest.raises(ValueError):
             build_digraph(root.subgraphs[0], registry=reg, ghost_external="sideways")
+
+    def test_invalid_mode_raises_without_registry(self):
+        root, _ = self._project()
+        with pytest.raises(ValueError):
+            build_digraph(root.subgraphs[0], ghost_external="sideways")

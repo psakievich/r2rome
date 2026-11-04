@@ -434,10 +434,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--keep-dot", action="store_true",
         help="Keep intermediate .dot source files alongside rendered output.",
     )
-    p_render.add_argument(
-        "--ghost-external", action="store_true",
-        help="Render cross-graph deps that point outside the current view as "
-             "dashed ghost nodes rather than silently dropping the edge.",
+    _gh = p_render.add_mutually_exclusive_group()
+    _gh.add_argument(
+        "--ghost", dest="ghost_external", default=None,
+        choices=["upstream", "downstream", "both"],
+        help="Show nodes just outside the current view as dashed ghost nodes "
+             "instead of dropping the edges to them: 'upstream' (what this "
+             "view waits on), 'downstream' (what waits on this view) or "
+             "'both' (one full layer around the view).",
+    )
+    _gh.add_argument(
+        "--ghost-external", dest="ghost_external", action="store_const",
+        const="both",
+        help="Shorthand for --ghost both.",
     )
     p_render.add_argument(
         "--color-scheme", default=None, choices=sorted(THEMES),
@@ -485,10 +494,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--depth", type=int, default=None, metavar="N",
         help="Max depth before collapsing subgraphs (default: unlimited)",
     )
-    p_dot.add_argument(
-        "--ghost-external", action="store_true",
-        help="Render cross-graph deps that point outside the current view as "
-             "dashed ghost nodes rather than silently dropping the edge.",
+    _gh = p_dot.add_mutually_exclusive_group()
+    _gh.add_argument(
+        "--ghost", dest="ghost_external", default=None,
+        choices=["upstream", "downstream", "both"],
+        help="Show nodes just outside the current view as dashed ghost nodes "
+             "instead of dropping the edges to them: 'upstream' (what this "
+             "view waits on), 'downstream' (what waits on this view) or "
+             "'both' (one full layer around the view).",
+    )
+    _gh.add_argument(
+        "--ghost-external", dest="ghost_external", action="store_const",
+        const="both",
+        help="Shorthand for --ghost both.",
     )
     p_dot.add_argument(
         "--color-scheme", default=None, choices=sorted(THEMES),

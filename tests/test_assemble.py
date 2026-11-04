@@ -4,6 +4,8 @@ Tests for r2rome.assemble — edge wiring, ci_coloring, blocks support.
 
 import warnings
 
+import pytest
+
 from graphviz import Digraph
 
 from r2rome.model import GraphNode, Graph, build_node_registry
@@ -280,3 +282,95 @@ class TestNestedSchemeOnParentPage:
         src = build_digraph(sub).source
         assert THEMES["dark"]["graph_attr"]["bgcolor"] in src
         assert THEMES["light"]["graph_attr"]["bgcolor"] not in src
+
+
+class TestGhostDirections:
+    """Issue #16: ghost one layer on both boundaries of a rendered subgraph."""
+
+    @staticmethod
+    def _project():
+        # alpha::x deps beta::z            → z is upstream of alpha
+        # beta::w  deps alpha::x            → w is downstream of alpha
+        # beta::b  blocks alpha::x          → b is upstream of alpha
+        # alpha::x blocks beta::v           → v is downstream of alpha
+        root = Graph.from_dict({
+            "name": "root",
+            "graphs": [
+                {"name": "alpha", "nodes": [
+                    {"name": "x", "deps": ["root::beta::z"], "blocks": ["root::beta::v"]},
+                ]},
+                {"name": "beta", "nodes": [
+                    {"name": "z", "label": "Zed"},
+                    {"name": "w", "label": "Dub", "deps": ["alpha::x"]},
+                    {"name": "b", "label": "Bee", "blocks": ["alpha::x"]},
+                    {"name": "v", "label": "Vee"},
+                ]},
+            ],
+        })
+        return root, build_node_registry(root)
+
+    def _src(self, mode):
+        root, reg = self._project()
+        return build_digraph(root.subgraphs[0], registry=reg, ghost_external=mode).source
+
+    def test_both_ghosts_full_layer(self):
+        src = self._src("both")
+        for label in ("Zed", "Dub", "Bee", "Vee"):
+            assert label in src
+
+    def test_true_means_both(self):
+        assert self._src(True) == self._src("both")
+
+    def test_upstream_only(self):
+        src = self._src("upstream")
+        assert "Zed" in src and "Bee" in src
+        assert "Dub" not in src and "Vee" not in src
+
+    def test_downstream_only(self):
+        src = self._src("downstream")
+        assert "Dub" in src and "Vee" in src
+        assert "Zed" not in src and "Bee" not in src
+
+    def test_incoming_edges_point_into_scope(self):
+        src = self._src("both")
+        assert "__ghost__root__beta__w -> x" in src
+        assert "__ghost__root__beta__b -> x" in src
+
+    def test_local_incoming_ref_from_parent_level(self):
+        """A sibling of the subgraph's owner that deps on a node inside it is
+        resolved locally and ghosted as downstream."""
+        root = Graph.from_dict({
+            "name": "root",
+            "nodes": [
+                {"name": "epic", "graph": {"nodes": [{"name": "task"}]}},
+                {"name": "later", "label": "Later", "deps": ["epic::task"]},
+                {"name": "unrelated", "label": "Nope", "deps": ["epic"]},
+            ],
+        })
+        reg = build_node_registry(root)
+        src = build_digraph(root.nodes[0].children, registry=reg,
+                            ghost_external="downstream").source
+        assert "Later" in src
+        assert "Nope" not in src
+
+    def test_same_short_name_outside_scope_is_not_treated_as_in_scope(self):
+        """A cross ref to root::dup must ghost, even though the view has its own 'dup'."""
+        root = Graph.from_dict({
+            "name": "root",
+            "nodes": [
+                {"name": "dup", "label": "Outer Dup"},
+                {"name": "epic", "graph": {"nodes": [
+                    {"name": "dup", "label": "Inner Dup", "deps": ["root::dup"]},
+                ]}},
+            ],
+        })
+        reg = build_node_registry(root)
+        src = build_digraph(root.nodes[1].children, registry=reg,
+                            ghost_external="upstream").source
+        assert "Outer Dup" in src
+        assert "dup -> __ghost__root__dup" in src
+
+    def test_invalid_mode_raises(self):
+        root, reg = self._project()
+        with pytest.raises(ValueError):
+            build_digraph(root.subgraphs[0], registry=reg, ghost_external="sideways")
